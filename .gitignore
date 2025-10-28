@@ -1,0 +1,15 @@
+# Local-only (do NOT commit)
+data/**
+notes/**
+
+# Jupyter noise
+**/.ipynb_checkpoints/
+
+# Research
+research/obsolete/**
+
+# Python noise
+__pycache__/
+*.pyc
+.venv/
+.env
