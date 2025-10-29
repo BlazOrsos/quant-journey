@@ -33,6 +33,10 @@ def download_ticker_data(
         if data.empty:
             print(f"No data found for {ticker}")
             return None
+        
+        # Flatten multi-level columns to remove ticker from column names
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.get_level_values(0)
             
         return data
     

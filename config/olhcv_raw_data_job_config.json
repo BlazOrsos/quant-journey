@@ -1,0 +1,6 @@
+{
+  "tickers": ["SPY"],
+  "start_date": "2015-01-01",
+  "interval": "1d",
+  "data_folder": "data"
+}
