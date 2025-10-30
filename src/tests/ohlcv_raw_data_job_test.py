@@ -29,7 +29,7 @@ from jobs.ohlcv_raw_data_job import (
     get_existing_data,
     get_previous_business_day,
     download_and_save_ticker_data,
-    run_job
+    run_ohlcv_raw_datajob
 )
 
 
@@ -413,7 +413,7 @@ class TestRunJob:
         mock_download_save.return_value = True
         
         # Execute
-        run_job(str(config_file))
+        run_ohlcv_raw_datajob(str(config_file))
         
         # Verify
         assert mock_download_save.call_count == 2
@@ -455,7 +455,7 @@ class TestRunJob:
         mock_download_save.side_effect = [True, False, True]
         
         # Execute
-        run_job(str(config_file))
+        run_ohlcv_raw_datajob(str(config_file))
         
         # Verify all tickers were attempted
         assert mock_download_save.call_count == 3

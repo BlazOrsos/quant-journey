@@ -206,7 +206,7 @@ def download_and_save_ticker_data(
         return False
 
 
-def run_job(config_path: str = None) -> None:
+def run_ohlcv_raw_datajob(config_path: str = None) -> None:
     """Main job execution function.
     
     Args:
@@ -263,4 +263,4 @@ def run_job(config_path: str = None) -> None:
 
 
 if __name__ == "__main__":
-    run_job()
+    run_ohlcv_raw_datajob()
