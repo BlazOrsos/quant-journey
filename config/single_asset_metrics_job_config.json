@@ -1,0 +1,14 @@
+{
+  "tickers": ["SPY", "GLD", "TLT"],
+  "returns_data_folder": "data/returns",
+  "metrics_data_folder": "data/metrics",
+  "timeframes": [
+    {"name": "1Y", "years": 1},
+    {"name": "2Y", "years": 2},
+    {"name": "3Y", "years": 3},
+    {"name": "5Y", "years": 5},
+    {"name": "Full Period", "years": null}
+  ],
+  "risk_free_rate": 0.0,
+  "periods_per_year": 252
+}

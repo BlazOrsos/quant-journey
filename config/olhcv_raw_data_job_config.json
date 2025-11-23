@@ -1,5 +1,5 @@
 {
-  "tickers": ["SPY", "GLD"],
+  "tickers": ["SPY", "GLD", "TLT"],
   "start_date": "2015-01-01",
   "interval": "1d",
   "data_folder": "data/ohlcv_raw"

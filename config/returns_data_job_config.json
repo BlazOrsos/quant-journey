@@ -1,5 +1,5 @@
 {
-  "tickers": ["SPY", "GLD"],
+  "tickers": ["SPY", "GLD", "TLT"],
   "ohlcv_data_folder": "data/ohlcv_raw",
   "returns_data_folder": "data/returns"
 }
