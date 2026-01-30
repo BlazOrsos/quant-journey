@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-class BinanceAdapter(ExchangeAdapter):
+class HyperliquidAdapter(ExchangeAdapter):
     def fetch_candles(self, symbol, venue_type, timeframe, start_ts):
-        exchange = ccxt.binance()
+        exchange = ccxt.hyperliquid()
                 
         if venue_type == 'futures':
             exchange.options['defaultType'] = 'future'
@@ -23,7 +23,7 @@ class BinanceAdapter(ExchangeAdapter):
         candle_data = ohlcv[0]
 
         return Candle(
-            exchange='binance',
+            exchange='hyperliquid',
             venue_type=venue_type,
             symbol=symbol,
             ts=candle_data[0],
@@ -35,7 +35,7 @@ class BinanceAdapter(ExchangeAdapter):
         )
 
     def fetch_funding(self, symbol, start_ts):
-        exchange = ccxt.binance()
+        exchange = ccxt.hyperliquid()
         exchange.options['defaultType'] = 'future'
         
         # Fetch funding rate history
@@ -48,7 +48,7 @@ class BinanceAdapter(ExchangeAdapter):
         funding_list = []
         for funding_data in funding_history:
             funding_list.append(Funding(
-                exchange='binance',
+                exchange='hyperliquid',
                 symbol=symbol,
                 ts=funding_data['timestamp'],
                 funding_rate=funding_data['fundingRate']
@@ -57,14 +57,14 @@ class BinanceAdapter(ExchangeAdapter):
         return funding_list
 
     def fetch_symbols(self, venue_type):       
-        exchange = ccxt.binance()
+        exchange = ccxt.hyperliquid()
         markets = exchange.load_markets()
         
         symbols = []
         for symbol, market in markets.items():
             if venue_type == 'spot' and market['spot']:
                 symbols.append(symbol)
-            elif venue_type == 'futures' and market.get('linear') and market.get('quote') == 'USDT':
+            elif venue_type == 'futures' and market.get('linear') and market.get('quote') == 'USDC':
                 symbols.append(symbol)
         return symbols
     
@@ -79,7 +79,7 @@ class BinanceAdapter(ExchangeAdapter):
         data_dir.mkdir(parents=True, exist_ok=True)
 
         # Save to JSON file
-        file_path = data_dir / f'binance_{venue_type}_symbols.json'
+        file_path = data_dir / f'hyperliquid_{venue_type}_symbols.json'
         with open(file_path, 'w') as f:
             json.dump({
                 'symbols': symbols,
@@ -89,7 +89,7 @@ class BinanceAdapter(ExchangeAdapter):
     
     def load_symbols(self, venue_type):
         data_dir = Path(__file__).parent.parent.parent / 'data' / 'symbols'
-        file_path = data_dir / f'binance_{venue_type}_symbols.json'
+        file_path = data_dir / f'hyperliquid_{venue_type}_symbols.json'
         with open(file_path, 'r') as f:
             data = json.load(f)
         return data['symbols']
