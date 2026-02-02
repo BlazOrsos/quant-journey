@@ -6,34 +6,6 @@ from pathlib import Path
 from datetime import datetime
 
 class BinanceAdapter(ExchangeAdapter):
-    def fetch_candles(self, symbol, venue_type, timeframe, start_ts):
-        exchange = ccxt.binance()
-                
-        if venue_type == 'futures':
-            exchange.options['defaultType'] = 'future'
-        elif venue_type == 'spot':
-            exchange.options['defaultType'] = 'spot'
-        
-        # Fetch OHLCV data
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe, since=start_ts, limit=1)
-        
-        if not ohlcv:
-            return None
-        
-        candle_data = ohlcv[0]
-
-        return Candle(
-            exchange='binance',
-            venue_type=venue_type,
-            symbol=symbol,
-            ts=candle_data[0],
-            open=candle_data[1],
-            high=candle_data[2],
-            low=candle_data[3],
-            close=candle_data[4],
-            volume=candle_data[5]
-        )
-
     def fetch_funding(self, symbol, start_ts):
         exchange = ccxt.binance()
         exchange.options['defaultType'] = 'future'
@@ -122,10 +94,3 @@ class BinanceAdapter(ExchangeAdapter):
                 'venue_type': venue_type
             }, f, indent=2)
         return symbols
-    
-    def load_symbols(self, venue_type):
-        data_dir = Path(__file__).parent.parent.parent / 'data' / 'symbols'
-        file_path = data_dir / f'binance_{venue_type}_symbols.json'
-        with open(file_path, 'r') as f:
-            data = json.load(f)
-        return data['symbols']

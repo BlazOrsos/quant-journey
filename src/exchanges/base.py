@@ -6,10 +6,6 @@ class ExchangeAdapter(ABC):
 
     # Market Data Methods
     @abstractmethod
-    def fetch_candles(self, symbol: str, venue_type: str, timeframe: str, start_ts: int) -> List[Candle]:
-        pass
-
-    @abstractmethod
     def fetch_funding(self, symbol: str, start_ts: int) -> List[Funding]:
         pass
 
@@ -18,11 +14,11 @@ class ExchangeAdapter(ABC):
         pass
 
     @abstractmethod
-    def save_symbols(self, venue_type: str) -> List[str]:
+    def fetch_symbols_volume(self, venue_type: str) -> List[str]:
         pass
 
     @abstractmethod
-    def load_symbols(self, venue_type: str) -> List[str]:
+    def save_symbols(self, venue_type: str) -> List[str]:
         pass
 
     # Trading Methods

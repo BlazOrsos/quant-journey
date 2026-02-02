@@ -16,15 +16,6 @@ def test_symbols():
     futures_symbols = adapter.save_symbols('futures')
     print(f"✓ Saved {len(futures_symbols)} futures symbols")
     assert len(futures_symbols) > 0, "No futures symbols saved"
-    
-    # Test loading
-    loaded_spot = adapter.load_symbols('spot')
-    print(f"✓ Loaded {len(loaded_spot)} spot symbols")
-    assert len(loaded_spot) == len(spot_symbols), "Loaded spot symbols don't match saved"
-    
-    loaded_futures = adapter.load_symbols('futures')
-    print(f"✓ Loaded {len(loaded_futures)} futures symbols")
-    assert len(loaded_futures) == len(futures_symbols), "Loaded futures symbols don't match saved"
 
 def test_funding():
     """Test fetching funding rates"""
