@@ -1,0 +1,15 @@
+{
+  "job_name": "symbols_data_job",
+  "description": "Fetches futures symbols from Binance, Bybit, and Hyperliquid",
+  "schedule": {
+    "frequency": "every_4_days",
+    "frequency_days": 4
+  },
+  "exchanges": [
+    "binance",
+    "bybit",
+    "hyperliquid"
+  ],
+  "venue_type": "futures",
+  "output_directory": "data/symbols"
+}
