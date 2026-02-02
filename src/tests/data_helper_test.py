@@ -4,7 +4,6 @@ import os
 
 from src.helpers.data_helper import save_df_to_csv, load_df_from_csv, get_last_date_from_csv
 
-
 def test_save_and_load_csv(tmp_path):
     df = pd.DataFrame({
         "a": [1, 2, 3],

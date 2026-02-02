@@ -22,3 +22,4 @@ class Funding:
     mark_price: Optional[float] = None
 
 # Add Order, Fill, Position
+

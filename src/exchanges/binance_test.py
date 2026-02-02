@@ -30,9 +30,9 @@ def test_funding():
     print("\n=== Testing Funding Rates ===")
     adapter = BinanceAdapter()
     
-    funding_date = datetime(2025, 1, 27, 0, 0, 0)
+    funding_date = datetime(2026, 1, 27, 0, 0, 0)
     funding_ts = int(funding_date.timestamp() * 1000)
-    funding = adapter.fetch_funding('BTC/USDT', funding_ts)
+    funding = adapter.fetch_funding('BTC/USDT:USDT', funding_ts)
     
     print(f"✓ Fetched {len(funding)} funding rate entries")
     assert len(funding) > 0, "No funding rates fetched"

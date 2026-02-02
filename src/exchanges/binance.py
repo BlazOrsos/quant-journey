@@ -39,7 +39,7 @@ class BinanceAdapter(ExchangeAdapter):
         exchange.options['defaultType'] = 'future'
         
         # Fetch funding rate history
-        funding_history = exchange.fetch_funding_rate_history(symbol, since=start_ts, limit=100)
+        funding_history = exchange.fetch_funding_rate_history(symbol, since=start_ts, limit=200)
         
         if not funding_history:
             return None
@@ -68,8 +68,44 @@ class BinanceAdapter(ExchangeAdapter):
                 symbols.append(symbol)
         return symbols
     
+    def fetch_symbols_volume(self, venue_type, min_volume_usd=2000000, days=4):
+        exchange = ccxt.binance()
+        
+        if venue_type == 'futures':
+            exchange.options['defaultType'] = 'future'
+        elif venue_type == 'spot':
+            exchange.options['defaultType'] = 'spot'
+        
+        markets = exchange.load_markets()
+        
+        symbols = []
+        for symbol, market in markets.items():
+            # Filter by market type first
+            if venue_type == 'spot' and not market['spot']:
+                continue
+            elif venue_type == 'futures' and not (market.get('linear') and market.get('quote') == 'USDT'):
+                continue
+            
+            try:
+                # Fetch last 4 daily candles
+                ohlcv = exchange.fetch_ohlcv(symbol, '1d', limit=days)
+                
+                if not ohlcv or len(ohlcv) < days:
+                    continue
+                
+                # Calculate average quote volume in USD
+                avg_quote_volume = sum(candle[5] * candle[4] for candle in ohlcv) / len(ohlcv)
+                
+                if avg_quote_volume >= min_volume_usd:
+                    symbols.append(symbol)
+            except Exception:
+                # Skip symbols that fail to fetch
+                continue
+        
+        return symbols
+    
     def save_symbols(self, venue_type):
-        symbols = self.fetch_symbols(venue_type)
+        symbols = self.fetch_symbols_volume(venue_type)
 
         # Filter out symbols with non-ASCII characters or date suffixes
         symbols = [s for s in symbols if s.isascii() and not any(c.isdigit() for c in s.split('/')[-1].split(':')[-1])]
