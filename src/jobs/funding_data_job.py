@@ -211,7 +211,7 @@ def run_funding_data_job(config_path: str = None) -> None:
     
     # Extract configuration
     exchanges = config.get('exchanges', ['binance'])
-    lookback_days = config.get('lookback_days', 4)
+    lookback_days = config.get('download_lookback_days', 5)
     data_folder = config.get('data_folder', 'data/funding')
     
     # Resolve paths
@@ -281,5 +281,211 @@ def run_funding_data_job(config_path: str = None) -> None:
     print(f"{'='*60}\n")
 
 
+def calculate_daily_funding_averages(
+    data_folder: str,
+    output_folder: str,
+    lookback_days: int = 4,
+    symbols_folder: str = None
+) -> None:
+    """Calculate daily funding rates and 4-day averages for all symbols.
+    
+    This function:
+    1. Loads current symbols from *_futures_symbols.json files
+    2. Reads raw funding data only for symbols in the current symbols list
+    3. Converts funding rates to daily rates (normalizing different frequencies)
+    4. Calculates the average daily funding rate over the past N days
+    5. Outputs a single CSV with TICKER, EXCHANGE, FUNDING_RATE
+    
+    Args:
+        data_folder: Folder containing raw funding CSV files
+        output_folder: Folder to save the aggregated daily funding rate CSV
+        lookback_days: Number of days to average (default: 4)
+        symbols_folder: Folder containing symbols JSON files (optional, auto-detected if None)
+    """
+    import glob
+    
+    print(f"\n{'='*60}")
+    print(f"Calculating Daily Funding Rate Averages")
+    print(f"{'='*60}")
+    print(f"Input Folder: {data_folder}")
+    print(f"Output Folder: {output_folder}")
+    print(f"Lookback Days: {lookback_days}")
+    print(f"{'='*60}\n")
+    
+    # Determine symbols folder path
+    if symbols_folder is None:
+        project_root = Path(__file__).parent.parent.parent
+        symbols_folder = str(project_root / 'data' / 'symbols')
+    
+    # Load all current symbols from symbols JSON files
+    print("Loading current symbols from symbols files...")
+    valid_symbols = set()  # Set of (exchange, symbol) tuples
+    
+    symbols_files = glob.glob(os.path.join(symbols_folder, "*_futures_symbols.json"))
+    
+    for symbols_file in symbols_files:
+        # Extract exchange name from filename (e.g., "binance_futures_symbols.json" -> "binance")
+        exchange_name = os.path.basename(symbols_file).replace('_futures_symbols.json', '')
+        
+        try:
+            symbols = load_symbols_from_file(symbols_file)
+            for symbol in symbols:
+                valid_symbols.add((exchange_name, symbol))
+            print(f"  ✓ Loaded {len(symbols)} symbols from {exchange_name}")
+        except Exception as e:
+            print(f"  ✗ Error loading symbols from {symbols_file}: {e}")
+    
+    print(f"Total current symbols across all exchanges: {len(valid_symbols)}\n")
+    
+    if not valid_symbols:
+        print("No valid symbols found. Exiting.")
+        return
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(output_folder, exist_ok=True)
+    
+    # Find all funding CSV files
+    funding_files = glob.glob(os.path.join(data_folder, "funding_*.csv"))
+    print(f"Found {len(funding_files)} funding data files\n")
+    
+    if not funding_files:
+        print("No funding files found. Exiting.")
+        return
+    
+    # Collect results for all symbols
+    results = []
+    skipped_count = 0
+    
+    for file_path in funding_files:
+        try:
+            # Read the funding data
+            df = pd.read_csv(file_path, parse_dates=['timestamp'])
+            
+            if df.empty:
+                continue
+            
+            # Extract exchange and symbol from filename or data
+            exchange = df['exchange'].iloc[0]
+            symbol = df['symbol'].iloc[0]
+            
+            # Check if this symbol is in the current symbols list
+            if (exchange, symbol) not in valid_symbols:
+                skipped_count += 1
+                print(f"  ⊘ Skipping {exchange}/{symbol} (not in current symbols list)")
+                continue
+            
+            # Sort by timestamp
+            df = df.sort_values('timestamp')
+            
+            # Calculate time differences to determine funding frequency
+            df['time_diff'] = df['timestamp'].diff()
+            
+            # Group by date and sum funding rates to get daily rate
+            # This normalizes different frequencies (3x/day, 1x/day, etc.)
+            df['date'] = df['timestamp'].dt.date
+            daily_df = df.groupby('date').agg({
+                'funding_rate': 'sum',  # Sum all funding rates in a day
+                'timestamp': 'first'
+            }).reset_index()
+            
+            # Filter to last N days
+            cutoff_date = (datetime.now() - timedelta(days=lookback_days)).date()
+            recent_df = daily_df[daily_df['date'] >= cutoff_date]
+            
+            if recent_df.empty or len(recent_df) < 1:
+                continue
+            
+            # Calculate average daily funding rate
+            avg_daily_funding = recent_df['funding_rate'].mean()
+            
+            # Clean ticker name (remove exchange prefix if present)
+            ticker = symbol.replace('/USDT:USDT', '').replace('/USD:USD', '')
+            
+            results.append({
+                'TICKER': ticker,
+                'EXCHANGE': exchange,
+                'FUNDING_RATE': avg_daily_funding
+            })
+            
+            print(f"  ✓ {exchange}/{ticker}: {avg_daily_funding:.6f}")
+            
+        except Exception as e:
+            print(f"  ✗ Error processing {file_path}: {str(e)}")
+            continue
+    
+    print(f"\nProcessed {len(results)} symbols, skipped {skipped_count} symbols not in current list\n")
+    
+    if not results:
+        print("\nNo results to save. Exiting.")
+        return
+    
+    # Create final DataFrame
+    results_df = pd.DataFrame(results)
+    
+    # Sort by funding rate (descending) for easy viewing
+    results_df = results_df.sort_values('FUNDING_RATE', ascending=False)
+    
+    # Generate output filename with timestamp
+    timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_file = os.path.join(output_folder, f"funding_rate_{timestamp_str}.csv")
+    
+    # Save to CSV
+    results_df.to_csv(output_file, index=False)
+    
+    print(f"\n{'='*60}")
+    print(f"Saved {len(results_df)} symbols to {output_file}")
+    print(f"{'='*60}\n")
+    
+    # Print top 10 highest funding rates
+    print(f"\nTop 10 Highest Funding Rates:")
+    print(results_df.head(10).to_string(index=False))
+
+
+def run_full_funding_pipeline(config_path: str = None) -> None:
+    """Run the complete funding data pipeline.
+    
+    This function:
+    1. Downloads the past 4 days of funding data
+    2. Converts to daily funding rates
+    3. Calculates average daily funding rate for past 4 days
+    
+    Args:
+        config_path: Path to configuration file
+    """
+    # Step 1: Download raw funding data
+    print("STEP 1: Downloading raw funding data")
+    run_funding_data_job(config_path)
+    
+    # Determine paths
+    if config_path is None:
+        project_root = Path(__file__).parent.parent.parent
+        config_path = project_root / "config" / "funding_data_job_config.json"
+    
+    config = load_config(str(config_path))
+    project_root = Path(__file__).parent.parent.parent
+    
+    data_folder = config.get('data_folder', 'data/funding')
+    if not os.path.isabs(data_folder):
+        data_folder = str(project_root / data_folder)
+    
+    average_window_days = config.get('average_window_days', 4)
+    output_folder = config.get('output_folder', 'data/funding_4d')
+    if not os.path.isabs(output_folder):
+        output_folder = str(project_root / output_folder)
+    
+    # Step 2: Calculate daily funding rate averages
+    print("\nSTEP 2: Calculating daily funding rate averages")
+    calculate_daily_funding_averages(
+        data_folder=data_folder,
+        output_folder=output_folder,
+        lookback_days=average_window_days
+    )
+    
+    print("\n" + "="*60)
+    print("FULL FUNDING PIPELINE COMPLETE")
+    print("="*60 + "\n")
+
+
 if __name__ == "__main__":
-    run_funding_data_job()
+    # Run the full pipeline by default
+    run_full_funding_pipeline()

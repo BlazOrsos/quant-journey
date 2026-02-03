@@ -1,15 +1,16 @@
 {
   "job_name": "funding_data_job",
-  "description": "Fetches historical funding rate data from crypto futures exchanges",
+  "description": "Fetches historical funding rate data from crypto futures exchanges and calculates daily averages",
   "schedule": {
     "frequency": "daily",
     "run_time": "00:00"
   },
   "exchanges": [
     "binance",
-    "bybit",
     "hyperliquid"
   ],
-  "lookback_days": 4,
-  "data_folder": "data/funding"
+  "download_lookback_days": 5,
+  "average_window_days": 4,
+  "data_folder": "data/funding",
+  "output_folder": "data/funding_4d"
 }
