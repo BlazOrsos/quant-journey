@@ -7,7 +7,6 @@
   },
   "exchanges": [
     "binance",
-    "bybit",
     "hyperliquid"
   ],
   "venue_type": "futures",
