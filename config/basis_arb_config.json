@@ -1,0 +1,18 @@
+{
+  "strategy_name": "basis_arb",
+  "description": "Basis arbitrage strategy based on funding rate forecasts",
+  "parameters": {
+    "lookback_window": 4,
+    "forward_sum_window": 8,
+    "hurdle_annual": 0.20,
+    "top_n": 10
+  },
+  "data_paths": {
+    "funding_4d_folder": "data/funding_4d",
+    "signals_folder": "data/signals"
+  },
+  "schedule": {
+    "frequency": "daily",
+    "time": "09:00"
+  }
+}
