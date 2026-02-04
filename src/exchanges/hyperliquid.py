@@ -4,6 +4,7 @@ import ccxt
 import json
 from pathlib import Path
 from datetime import datetime
+import pandas as pd
 
 class HyperliquidAdapter(ExchangeAdapter):
     def fetch_funding(self, symbol, start_ts):
@@ -50,12 +51,20 @@ class HyperliquidAdapter(ExchangeAdapter):
         
         markets = exchange.load_markets()
         
+        # Load symbols with active signals
+        active_signal_symbols = self._get_active_signal_symbols()
+        
         symbols = []
         for symbol, market in markets.items():
             # Filter by market type first
             if venue_type == 'spot' and not market['spot']:
                 continue
             elif venue_type == 'futures' and not (market.get('linear') and market.get('quote') == 'USDC'):
+                continue
+            
+            # Always include symbols with active signals
+            if symbol in active_signal_symbols:
+                symbols.append(symbol)
                 continue
             
             try:
@@ -99,3 +108,26 @@ class HyperliquidAdapter(ExchangeAdapter):
         with open(file_path, 'r') as f:
             data = json.load(f)
         return data['symbols']
+
+    def _get_active_signal_symbols(self):
+        """Get symbols with SIGNAL=1 from the latest basis_arb_signals file"""
+        signals_dir = Path(__file__).parent.parent.parent / 'data' / 'signals'
+        
+        if not signals_dir.exists():
+            return set()
+        
+        # Find the latest basis_arb_signals file
+        signal_files = sorted(signals_dir.glob('basis_arb_signals_*.csv'), reverse=True)
+        
+        if not signal_files:
+            return set()
+        
+        latest_file = signal_files[0]
+        
+        try:
+            df = pd.read_csv(latest_file)
+            # Filter rows where SIGNAL == 1 and extract unique symbols
+            active_symbols = set(df[df['SIGNAL'] == 1]['SYMBOL'].unique())
+            return active_symbols
+        except Exception:
+            return set()
