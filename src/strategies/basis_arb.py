@@ -36,6 +36,7 @@ class BasisArbSignalGenerator:
         forward_sum_window: int = 8,
         hurdle_annual: float = 0.2,
         top_n: int = 10,
+        min_hold_days: int = 8,
         funding_4d_folder: str = "data/funding_4d",
         signals_folder: str = "data/signals",
         project_root: Optional[str] = None
@@ -47,6 +48,7 @@ class BasisArbSignalGenerator:
             forward_sum_window: Days to forecast ahead (default: 8)
             hurdle_annual: Annual hurdle rate (default: 0.2 = 20%)
             top_n: Number of top positions to hold (default: 10)
+            min_hold_days: Minimum intended hold days for reporting/logic (default: 8)
             funding_4d_folder: Folder containing 4-day funding rate files
             signals_folder: Folder to save signal files
             project_root: Root directory of the project
@@ -55,6 +57,7 @@ class BasisArbSignalGenerator:
         self.forward_sum_window = forward_sum_window
         self.hurdle_annual = hurdle_annual
         self.top_n = top_n
+        self.min_hold_days = min_hold_days
         
         # Calculate 8-day hurdle from annual
         self.hurdle_8day = hurdle_annual * (forward_sum_window / 365)
@@ -171,11 +174,41 @@ class BasisArbSignalGenerator:
         
         return df_top
     
-    def generate_signals(self, as_of_date: Optional[datetime] = None) -> pd.DataFrame:
+    def _prepare_previous_signals(
+        self, 
+        previous_signals: Optional[pd.DataFrame], 
+        as_of_date: datetime
+    ) -> pd.DataFrame:
+        """Prepare previous signals with ENTRY_DATE and HOLD_DAYS."""
+        if previous_signals is None or len(previous_signals) == 0:
+            return pd.DataFrame(columns=['TICKER', 'EXCHANGE', 'ENTRY_DATE', 'HOLD_DAYS'])
+        
+        prev = previous_signals.copy()
+        
+        # Ensure ENTRY_DATE exists
+        if 'ENTRY_DATE' not in prev.columns:
+            if 'SIGNAL_DATE' in prev.columns:
+                prev['ENTRY_DATE'] = prev['SIGNAL_DATE']
+            else:
+                prev['ENTRY_DATE'] = as_of_date.strftime('%Y-%m-%d')
+        
+        prev['ENTRY_DATE'] = pd.to_datetime(prev['ENTRY_DATE'])
+
+        as_of_ts = pd.Timestamp(as_of_date).normalize()
+        prev['HOLD_DAYS'] = (as_of_ts - prev['ENTRY_DATE']).dt.days
+        
+        return prev[['TICKER', 'EXCHANGE', 'ENTRY_DATE', 'HOLD_DAYS']]
+    
+    def generate_signals(
+        self, 
+        as_of_date: Optional[datetime] = None,
+        previous_signals: Optional[pd.DataFrame] = None
+    ) -> pd.DataFrame:
         """Generate trading signals for the given date.
         
         Args:
             as_of_date: Date to generate signals for (default: today)
+            previous_signals: Previous signal DataFrame (optional)
             
         Returns:
             DataFrame with signals (TICKER, EXCHANGE, FORECAST, SIGNAL)
@@ -199,26 +232,66 @@ class BasisArbSignalGenerator:
         # Calculate forecast
         df = self.calculate_forecast(df)
         
-        # Apply hurdle filter
-        df = self.apply_hurdle(df)
+        # Apply hurdle filter (current universe above hurdle)
+        df_above = self.apply_hurdle(df)
         
-        # Select top N
-        df_signals = self.select_top_n(df)
+        # Prepare previous positions
+        prev_prepared = self._prepare_previous_signals(previous_signals, as_of_date)
+        
+        if len(prev_prepared) == 0:
+            # No previous positions → just take top N above hurdle
+            df_selected = self.select_top_n(df_above)
+            df_selected['ENTRY_DATE'] = as_of_date.strftime('%Y-%m-%d')
+            df_selected['HOLD_DAYS'] = 0
+            df_selected['KEEP_REASON'] = 'NEW_TOP'
+        else:
+            # Keep previous positions if still above hurdle
+            prev_keep = prev_prepared.merge(
+                df_above[['TICKER', 'EXCHANGE', 'FUNDING_RATE', 'FORECAST']],
+                on=['TICKER', 'EXCHANGE'],
+                how='inner'
+            )
+            prev_keep['KEEP_REASON'] = 'ABOVE_HURDLE'
+            
+            # Remaining slots for new entries
+            remaining_slots = self.top_n - len(prev_keep)
+            
+            # Add new candidates only if there is capacity
+            if remaining_slots > 0:
+                prev_set = set(zip(prev_keep['TICKER'], prev_keep['EXCHANGE']))
+                new_candidates = df_above[
+                    ~df_above.set_index(['TICKER', 'EXCHANGE']).index.isin(prev_set)
+                ].sort_values('FORECAST', ascending=False).head(remaining_slots).copy()
+                
+                new_candidates['ENTRY_DATE'] = as_of_date.strftime('%Y-%m-%d')
+                new_candidates['HOLD_DAYS'] = 0
+                new_candidates['KEEP_REASON'] = 'NEW_TOP'
+                
+                df_selected = pd.concat([prev_keep, new_candidates], ignore_index=True)
+            else:
+                df_selected = prev_keep.copy()
+                if remaining_slots < 0:
+                    print(
+                        f"Warning: {len(prev_keep)} existing positions above hurdle exceed top_n={self.top_n}. "
+                        f"Keeping all existing positions."
+                    )
         
         # Add signal column (1 = LONG position)
-        df_signals['SIGNAL'] = 1
+        df_selected['SIGNAL'] = 1
         
         # Add metadata
-        df_signals['SIGNAL_DATE'] = as_of_date.strftime('%Y-%m-%d')
-        df_signals['HURDLE_8DAY'] = self.hurdle_8day
+        df_selected['SIGNAL_DATE'] = as_of_date.strftime('%Y-%m-%d')
+        df_selected['HURDLE_8DAY'] = self.hurdle_8day
+        df_selected['MIN_HOLD_DAYS'] = self.min_hold_days
         
         # Reorder columns
-        df_signals = df_signals[[
-            'TICKER', 'EXCHANGE', 'FUNDING_RATE', 'FORECAST', 
-            'SIGNAL', 'SIGNAL_DATE', 'HURDLE_8DAY'
-        ]]
+        df_selected = df_selected[([
+            'TICKER', 'EXCHANGE', 'FUNDING_RATE', 'FORECAST',
+            'SIGNAL', 'SIGNAL_DATE', 'ENTRY_DATE', 'HOLD_DAYS',
+            'HURDLE_8DAY', 'MIN_HOLD_DAYS', 'KEEP_REASON'
+        ])]
         
-        return df_signals
+        return df_selected
     
     def save_signals(self, df_signals: pd.DataFrame, as_of_date: Optional[datetime] = None) -> str:
         """Save signals to CSV file.
@@ -364,11 +437,11 @@ class BasisArbSignalGenerator:
         Returns:
             Path to the saved signals file
         """
-        # Generate signals
-        df_signals = self.generate_signals(as_of_date)
-        
-        # Load previous signals for comparison
+        # Load previous signals for comparison/holding logic
         df_previous = self.load_previous_signals()
+        
+        # Generate signals (keep above-hurdle positions)
+        df_signals = self.generate_signals(as_of_date, df_previous)
         
         # Compare signals
         comparison = self.compare_signals(df_signals, df_previous)
@@ -407,6 +480,7 @@ def main():
         forward_sum_window=config.get('parameters', {}).get('forward_sum_window', 8),
         hurdle_annual=config.get('parameters', {}).get('hurdle_annual', 0.20),
         top_n=config.get('parameters', {}).get('top_n', 10),
+        min_hold_days=config.get('parameters', {}).get('min_hold_days', 8),
         funding_4d_folder=config.get('data_paths', {}).get('funding_4d_folder', 'data/funding_4d'),
         signals_folder=config.get('data_paths', {}).get('signals_folder', 'data/signals')
     )

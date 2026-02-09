@@ -29,7 +29,7 @@ def fetch_futures_symbols():
     # Initialize exchange adapters
     exchanges = {
         'binance': BinanceAdapter(),
-        'bybit': BybitAdapter(),
+        #'bybit': BybitAdapter(),
         'hyperliquid': HyperliquidAdapter()
     }
     

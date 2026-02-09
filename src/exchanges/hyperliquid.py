@@ -103,11 +103,6 @@ class HyperliquidAdapter(ExchangeAdapter):
                 'venue_type': venue_type
             }, f, indent=2)
         return symbols
-        data_dir = Path(__file__).parent.parent.parent / 'data' / 'symbols'
-        file_path = data_dir / f'hyperliquid_{venue_type}_symbols.json'
-        with open(file_path, 'r') as f:
-            data = json.load(f)
-        return data['symbols']
 
     def _get_active_signal_symbols(self):
         """Get symbols with SIGNAL=1 from the latest basis_arb_signals file"""
