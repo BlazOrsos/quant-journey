@@ -181,7 +181,7 @@ class BasisArbSignalGenerator:
     ) -> pd.DataFrame:
         """Prepare previous signals with ENTRY_DATE and HOLD_DAYS."""
         if previous_signals is None or len(previous_signals) == 0:
-            return pd.DataFrame(columns=['TICKER', 'EXCHANGE', 'ENTRY_DATE', 'HOLD_DAYS'])
+            return pd.DataFrame(columns=['TICKER', 'EXCHANGE', 'ENTRY_DATE', 'HOLD_DAYS', 'SIGNAL_DATE'])
         
         prev = previous_signals.copy()
         
@@ -192,12 +192,16 @@ class BasisArbSignalGenerator:
             else:
                 prev['ENTRY_DATE'] = as_of_date.strftime('%Y-%m-%d')
         
+        # Preserve original SIGNAL_DATE (the date the signal was first generated)
+        if 'SIGNAL_DATE' not in prev.columns:
+            prev['SIGNAL_DATE'] = prev['ENTRY_DATE']
+        
         prev['ENTRY_DATE'] = pd.to_datetime(prev['ENTRY_DATE'])
 
         as_of_ts = pd.Timestamp(as_of_date).normalize()
         prev['HOLD_DAYS'] = (as_of_ts - prev['ENTRY_DATE']).dt.days
         
-        return prev[['TICKER', 'EXCHANGE', 'ENTRY_DATE', 'HOLD_DAYS']]
+        return prev[['TICKER', 'EXCHANGE', 'ENTRY_DATE', 'HOLD_DAYS', 'SIGNAL_DATE']]
     
     def generate_signals(
         self, 
@@ -245,7 +249,8 @@ class BasisArbSignalGenerator:
             df_selected['HOLD_DAYS'] = 0
             df_selected['KEEP_REASON'] = 'NEW_TOP'
         else:
-            # Keep previous positions if still above hurdle
+            # Keep ALL previous positions that are still above hurdle
+            # Exit criteria: dropping below hurdle (nothing else)
             prev_keep = prev_prepared.merge(
                 df_above[['TICKER', 'EXCHANGE', 'FUNDING_RATE', 'FORECAST']],
                 on=['TICKER', 'EXCHANGE'],
@@ -253,14 +258,22 @@ class BasisArbSignalGenerator:
             )
             prev_keep['KEEP_REASON'] = 'ABOVE_HURDLE'
             
+            # Log positions that fell below hurdle (exits)
+            prev_all_set = set(zip(prev_prepared['TICKER'], prev_prepared['EXCHANGE']))
+            prev_kept_set = set(zip(prev_keep['TICKER'], prev_keep['EXCHANGE']))
+            exited = prev_all_set - prev_kept_set
+            if exited:
+                print(f"Exiting {len(exited)} positions (fell below hurdle):")
+                for ticker, exchange in exited:
+                    print(f"  - {ticker} ({exchange})")
+            
             # Remaining slots for new entries
             remaining_slots = self.top_n - len(prev_keep)
             
             # Add new candidates only if there is capacity
             if remaining_slots > 0:
-                prev_set = set(zip(prev_keep['TICKER'], prev_keep['EXCHANGE']))
                 new_candidates = df_above[
-                    ~df_above.set_index(['TICKER', 'EXCHANGE']).index.isin(prev_set)
+                    ~df_above.set_index(['TICKER', 'EXCHANGE']).index.isin(prev_kept_set)
                 ].sort_values('FORECAST', ascending=False).head(remaining_slots).copy()
                 
                 new_candidates['ENTRY_DATE'] = as_of_date.strftime('%Y-%m-%d')
@@ -279,8 +292,19 @@ class BasisArbSignalGenerator:
         # Add signal column (1 = LONG position)
         df_selected['SIGNAL'] = 1
         
-        # Add metadata
-        df_selected['SIGNAL_DATE'] = as_of_date.strftime('%Y-%m-%d')
+        # Add metadata — only set SIGNAL_DATE and ENTRY_DATE for rows that don't already have them
+        # For held positions, preserve their original ENTRY_DATE from previous signals
+        if 'SIGNAL_DATE' not in df_selected.columns:
+            df_selected['SIGNAL_DATE'] = as_of_date.strftime('%Y-%m-%d')
+        else:
+            # New entries won't have SIGNAL_DATE yet; held positions shouldn't be overwritten
+            df_selected['SIGNAL_DATE'] = df_selected['SIGNAL_DATE'].fillna(as_of_date.strftime('%Y-%m-%d'))
+        
+        # For held positions, ENTRY_DATE was carried from _prepare_previous_signals
+        # For new entries, ENTRY_DATE was set above
+        # Convert ENTRY_DATE to string for consistent output
+        df_selected['ENTRY_DATE'] = pd.to_datetime(df_selected['ENTRY_DATE']).dt.strftime('%Y-%m-%d')
+        
         df_selected['HURDLE_8DAY'] = self.hurdle_8day
         df_selected['MIN_HOLD_DAYS'] = self.min_hold_days
         
@@ -333,15 +357,13 @@ class BasisArbSignalGenerator:
         if not files:
             return None
         
-        # Sort by filename (contains date) and get second latest
+        # Sort by filename (contains date) and get the latest
         files.sort(reverse=True)
-        if len(files) < 2:
-            return None
         
-        prev_file = files[1]
-        prev_path = os.path.join(self.signals_folder, prev_file)
+        latest_file = files[0]
+        latest_path = os.path.join(self.signals_folder, latest_file)
         
-        return pd.read_csv(prev_path)
+        return pd.read_csv(latest_path)
     
     def compare_signals(
         self, 
