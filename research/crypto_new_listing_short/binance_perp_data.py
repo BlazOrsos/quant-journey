@@ -199,12 +199,20 @@ def main():
     print(f"Output directory: {OUTPUT_DIR}\n")
 
     tickers = get_usdt_tickers()
-    print()
+
+    # Skip tickers that already have a saved CSV
+    existing = {f.stem for f in OUTPUT_DIR.glob("*.csv")}
+    remaining = [t for t in tickers if t not in existing]
+    skipped = len(tickers) - len(remaining)
+    if skipped:
+        print(f"Skipping {skipped} already-downloaded tickers, {len(remaining)} remaining.\n")
+    else:
+        print()
 
     successes = 0
     failures = 0
-    for i, ticker in enumerate(tickers, 1):
-        print(f"[{i}/{len(tickers)}] {ticker}")
+    for i, ticker in enumerate(remaining, 1):
+        print(f"[{i}/{len(remaining)}] {ticker}")
         try:
             ok = process_ticker(ticker)
             if ok:
@@ -215,7 +223,7 @@ def main():
             print(f"  ✗ {ticker} — error: {exc}")
             failures += 1
 
-    print(f"\nDone. {successes} succeeded, {failures} failed.")
+    print(f"\nDone. {successes} succeeded, {failures} failed, {skipped} previously downloaded.")
 
 
 if __name__ == "__main__":
