@@ -1,33 +1,48 @@
 """
-Download Binance USDT perpetual futures 1d OHLCV data from data.binance.vision.
+Download Binance USDT perpetual futures OHLCV data from data.binance.vision.
+
+Configurable timeframe and start date.
 
 Flow:
   1. List all tickers via the S3 XML API
   2. Filter for USDT-margined tickers
-  3. For each ticker, list all .zip files in the 1d/ folder
-  4. Download, extract, and merge CSVs into one file per ticker
-  5. Save to OUTPUT_DIR as {TICKER}.csv
+  3. For each ticker, list all .zip files in the {TIMEFRAME}/ folder
+  4. Filter to only files from START_DATE onward
+  5. Download, extract, and merge CSVs into one file per ticker
+  6. Save to OUTPUT_DIR as {TICKER}.csv
 """
 
 import io
 import os
+import re
 import time
 import zipfile
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 import requests
 
 # ---------------------------------------------------------------------------
-# Config
+# Configuration
+# ---------------------------------------------------------------------------
+TIMEFRAME = "4h"              # Options: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M
+START_DATE = "2022-01-01"     # Download data from this date onward (YYYY-MM-DD)
+
+# ---------------------------------------------------------------------------
+# Derived Config
 # ---------------------------------------------------------------------------
 S3_BASE = "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision"
 DOWNLOAD_BASE = "https://data.binance.vision"
 PREFIX = "data/futures/um/daily/klines/"
 
-OUTPUT_DIR = Path(__file__).resolve().parent / "ohlcv_binance_perp"
+# Output directory based on timeframe
+if TIMEFRAME == "1d":
+    OUTPUT_DIR = Path(__file__).resolve().parent / "ohlcv_binance_perp"
+else:
+    OUTPUT_DIR = Path(__file__).resolve().parent / f"ohlcv_binance_perp_{TIMEFRAME}"
 
 KLINE_COLUMNS = [
     "open_time", "open", "high", "low", "close", "volume",
@@ -123,11 +138,32 @@ def get_usdt_tickers() -> list[str]:
     return sorted(tickers)
 
 
+def _cutoff_date() -> datetime:
+    """Return the cutoff date from START_DATE config."""
+    return datetime.strptime(START_DATE, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+
+
+def _date_from_zip_key(key: str) -> datetime | None:
+    """Extract the date from a zip filename like …/BTCUSDT-1m-2025-11-03.zip"""
+    m = re.search(r"(\d{4}-\d{2}-\d{2})\.zip$", key)
+    if m:
+        return datetime.strptime(m.group(1), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    return None
+
+
 def list_zip_keys(ticker: str) -> list[str]:
-    """List all .zip file keys for the 1d kline folder of *ticker*."""
-    prefix = f"{PREFIX}{ticker}/1d/"
+    """List .zip file keys for the {TIMEFRAME} kline folder of *ticker* from START_DATE onward."""
+    prefix = f"{PREFIX}{ticker}/{TIMEFRAME}/"
     keys = s3_list_keys(prefix)
-    return [k for k in keys if k.endswith(".zip")]
+    cutoff = _cutoff_date()
+    recent = []
+    for k in keys:
+        if not k.endswith(".zip"):
+            continue
+        dt = _date_from_zip_key(k)
+        if dt is not None and dt >= cutoff:
+            recent.append(k)
+    return recent
 
 
 def download_and_extract_zip(key: str) -> pd.DataFrame | None:
@@ -148,7 +184,7 @@ def download_and_extract_zip(key: str) -> pd.DataFrame | None:
 
 
 def process_ticker(ticker: str) -> bool:
-    """Download all 1d zips for *ticker*, merge, and save. Returns True on success."""
+    """Download {TIMEFRAME} zips for *ticker* from START_DATE onward, merge, and save. Returns True on success."""
     out_path = OUTPUT_DIR / f"{ticker}.csv"
     if out_path.exists():
         print(f"  ✓ {ticker} — already exists, skipping")
@@ -156,7 +192,7 @@ def process_ticker(ticker: str) -> bool:
 
     zip_keys = list_zip_keys(ticker)
     if not zip_keys:
-        print(f"  ✗ {ticker} — no 1d zip files found")
+        print(f"  ✗ {ticker} — no {TIMEFRAME} zip files found from {START_DATE} onward")
         return False
 
     print(f"  ⏳ {ticker} — downloading {len(zip_keys)} files...")
@@ -196,7 +232,10 @@ def process_ticker(ticker: str) -> bool:
 # ---------------------------------------------------------------------------
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Output directory: {OUTPUT_DIR}\n")
+    print(f"Configuration:")
+    print(f"  Timeframe: {TIMEFRAME}")
+    print(f"  Start date: {START_DATE}")
+    print(f"  Output directory: {OUTPUT_DIR}\n")
 
     tickers = get_usdt_tickers()
 
