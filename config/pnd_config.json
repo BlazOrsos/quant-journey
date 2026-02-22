@@ -1,0 +1,14 @@
+{
+    "strategy_name": "pnd_strategy",
+    "description": "Crypto pump and dump detection strategy based on 4-hour candlestick data",
+    "parameters": {
+        "lookback_days": 60,
+        "candle_interval": "4h",
+        "exchange": "binance"
+    },
+    "data_paths": {
+        "storage_format": "parquet",
+        "log_path": "logs/",
+        "data_path": "data/"
+    }
+}
