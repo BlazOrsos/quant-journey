@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from utils.logger import setup_logger
+import time
 
 
 # ---------------------------------------------------------------------------
@@ -45,3 +46,10 @@ def init() -> tuple[dict, logging.Logger]:
 
 if __name__ == "__main__":
     config, logger = init()
+
+    try:
+        while True:
+            logger.info("Heartbeat: PND Pipeline is running...")
+            time.sleep(60)
+    except KeyboardInterrupt:
+        logger.info("PND Pipeline stopped by user.")
