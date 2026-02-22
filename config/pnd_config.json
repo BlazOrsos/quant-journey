@@ -10,5 +10,8 @@
         "storage_format": "parquet",
         "log_path": "logs/",
         "data_path": "data/"
+    },
+    "binance": {
+        "api_key": "<your_binance_api_key>"
     }
 }
