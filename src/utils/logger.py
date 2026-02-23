@@ -1,4 +1,6 @@
+import io
 import logging
+import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from datetime import datetime
@@ -26,13 +28,18 @@ def setup_logger(name: str, log_path: str | Path, level: int = logging.INFO) -> 
         datefmt='%Y-%m-%d %H:%M:%S.%f'
     )
 
-    # Console handler
-    ch = logging.StreamHandler()
+    # Console handler — force UTF-8 so non-ASCII ticker names don't raise
+    # UnicodeEncodeError on Windows consoles that default to cp1252.
+    if hasattr(sys.stdout, "buffer"):
+        utf8_stream = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    else:
+        utf8_stream = sys.stdout
+    ch = logging.StreamHandler(utf8_stream)
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 
     # Rotating file handler
-    fh = RotatingFileHandler(log_path, maxBytes=5_000_000, backupCount=5)
+    fh = RotatingFileHandler(log_path, maxBytes=5_000_000, backupCount=5, encoding="utf-8")
     fh.setFormatter(formatter)
     logger.addHandler(fh)
 

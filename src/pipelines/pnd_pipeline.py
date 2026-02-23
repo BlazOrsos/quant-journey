@@ -1,7 +1,9 @@
+import asyncio
 import json
 import logging
 import sys
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 
@@ -14,7 +16,7 @@ from utils.logger import setup_logger
 from exchanges.binance_vision import BinanceVisionClient
 from exchanges.binance_klines import BinanceFuturesKlines
 from data.storage import OHLCVStorage
-import time
+from exchanges.binance_websocket import BinanceFuturesKlineStream
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +99,81 @@ def hydrate_data(
 
 
 # ---------------------------------------------------------------------------
+# STAGE 4 — WEBSOCKET SUBSCRIPTION
+# ---------------------------------------------------------------------------
+
+def build_candle_handler(
+    storage: OHLCVStorage,
+    logger: logging.Logger,
+) -> Callable[[str, pd.DataFrame], None]:
+    """
+    Return a closed-candle callback that:
+      1. Merges the new candle into local Parquet storage.
+      2. Runs feature engineering  (placeholder — to be implemented).
+      3. Runs signal detection     (placeholder — to be implemented).
+    """
+    def on_closed_candle(ticker: str, candle: pd.DataFrame) -> None:
+        ts = candle["open_time"].iloc[0]
+        logger.debug(f"[{ticker}] Closed candle @ {ts}")
+
+        # --- Step 1: Update local storage ---
+        existing = storage.read_ticker(ticker)
+        merged = OHLCVStorage._merge(existing, candle)
+        storage.write_ticker(ticker, merged)
+        logger.debug(f"[{ticker}] Storage updated ({len(merged)} rows).")
+
+        # --- Step 2: Feature engineering (placeholder) ---
+        # features = compute_features(ticker, merged)
+
+        # --- Step 3: Signal detection (placeholder) ---
+        # signals = detect_signals(ticker, features)
+        # if signals:
+        #     logger.info(f"[{ticker}] Signal detected: {signals}")
+
+    return on_closed_candle
+
+
+def run_websocket(
+    config: dict,
+    dataframes: dict[str, pd.DataFrame],
+    logger: logging.Logger,
+) -> None:
+    """Stage 4: subscribe to live kline streams for all hydrated tickers."""
+    logger.info("========== Stage 4 ==========")
+
+    tickers = list(dataframes.keys())
+    logger.info(
+        f"{len(tickers)} tickers with data — subscribing to WebSocket streams …"
+    )
+
+    interval = config["parameters"]["candle_interval"]
+    lookback = config["parameters"]["lookback_days"]
+    data_dir = ROOT / config["data_paths"]["data_path"]
+
+    storage = OHLCVStorage(
+        data_dir=data_dir,
+        lookback_days=lookback,
+        candle_interval=interval,
+        logger=logger,
+    )
+
+    handler = build_candle_handler(storage, logger)
+
+    stream = BinanceFuturesKlineStream(
+        tickers=tickers,
+        interval=interval,
+        on_closed_candle=handler,
+        logger=logger,
+    )
+
+    try:
+        asyncio.run(stream.run_forever())
+    except KeyboardInterrupt:
+        stream.stop()
+        logger.info("WebSocket stream stopped by user.")
+
+
+# ---------------------------------------------------------------------------
 # MAIN ENTRY POINT
 # ---------------------------------------------------------------------------
 
@@ -107,9 +184,4 @@ if __name__ == "__main__":
 
     dataframes = hydrate_data(config, tickers, logger)
 
-    try:
-        while True:
-            logger.info("Heartbeat: PND Pipeline is running...")
-            time.sleep(5)
-    except KeyboardInterrupt:
-        logger.info("PND Pipeline stopped by user.")
+    run_websocket(config, dataframes, logger)
