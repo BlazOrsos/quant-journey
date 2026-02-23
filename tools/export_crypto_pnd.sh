@@ -15,6 +15,7 @@ echo "Verifying paths exist (tracked files)..."
 git ls-files --error-unmatch src/utils/logger.py >/dev/null
 git ls-files --error-unmatch src/pipelines/pnd_pipeline.py >/dev/null
 git ls-files --error-unmatch src/exchanges/binance_vision.py >/dev/null
+git ls-files --error-unmatch src/exchanges/binance_klines.py >/dev/null
 git ls-files --error-unmatch config/pnd_config.json >/dev/null
 
 echo "Filtering repo..."
@@ -22,6 +23,7 @@ git filter-repo \
   --path src/utils/logger.py \
   --path src/pipelines/pnd_pipeline.py \
   --path src/exchanges/binance_vision.py \
+  --path src/exchanges/binance_klines.py \
   --path config/pnd_config.json \
   --force
 

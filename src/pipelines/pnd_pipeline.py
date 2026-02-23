@@ -3,6 +3,8 @@ import logging
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 # Resolve project root (two levels up from this file: src/pipelines/ -> quant-journey/)
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -10,6 +12,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from utils.logger import setup_logger
 from exchanges.binance_vision import BinanceVisionClient
+from exchanges.binance_klines import BinanceFuturesKlines
+from data.storage import OHLCVStorage
 import time
 
 
@@ -59,6 +63,40 @@ def fetch_tickers(config: dict, logger: logging.Logger) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# STAGE 3 — DATA HYDRATION
+# ---------------------------------------------------------------------------
+
+def hydrate_data(
+    config: dict,
+    tickers: list[str],
+    logger: logging.Logger,
+) -> dict[str, pd.DataFrame]:
+    """Sync local parquet store for every ticker via the three-phase cascade."""
+    logger.info("========== Stage 3 ==========")
+    logger.info("Starting data hydration …")
+
+    data_dir = ROOT / config["data_paths"]["data_path"]
+    interval = config["parameters"]["candle_interval"]
+    lookback = config["parameters"]["lookback_days"]
+
+    storage = OHLCVStorage(
+        data_dir=data_dir,
+        lookback_days=lookback,
+        candle_interval=interval,
+        logger=logger,
+    )
+    vision_client = BinanceVisionClient()
+    klines_client = BinanceFuturesKlines()
+
+    results = storage.sync_all(tickers, vision_client, klines_client)
+
+    logger.info(
+        f"Data hydration complete — {len(results)}/{len(tickers)} tickers ready."
+    )
+    return results
+
+
+# ---------------------------------------------------------------------------
 # MAIN ENTRY POINT
 # ---------------------------------------------------------------------------
 
@@ -66,6 +104,8 @@ if __name__ == "__main__":
     config, logger = init()
 
     tickers = fetch_tickers(config, logger)
+
+    dataframes = hydrate_data(config, tickers, logger)
 
     try:
         while True:
