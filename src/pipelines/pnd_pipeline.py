@@ -133,6 +133,11 @@ def build_candle_handler(
     return on_closed_candle
 
 
+async def heartbeat(logger: logging.Logger, interval_sec: int = 600):
+    while True:
+        logger.info("Heartbeat: pipeline is running.")
+        await asyncio.sleep(interval_sec)
+
 def run_websocket(
     config: dict,
     dataframes: dict[str, pd.DataFrame],
@@ -166,8 +171,13 @@ def run_websocket(
         logger=logger,
     )
 
+    async def main():
+        heartbeat_task = asyncio.create_task(heartbeat(logger))
+        stream_task = asyncio.create_task(stream.run_forever())
+        await asyncio.gather(heartbeat_task, stream_task)
+
     try:
-        asyncio.run(stream.run_forever())
+        asyncio.run(main())
     except KeyboardInterrupt:
         stream.stop()
         logger.info("WebSocket stream stopped by user.")
