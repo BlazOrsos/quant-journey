@@ -310,8 +310,8 @@ class BinanceVisionClient:
             return pd.DataFrame(columns=KLINE_COLUMNS)
 
         merged = pd.concat(frames, ignore_index=True)
-        merged["open_time"] = pd.to_datetime(merged["open_time"], unit="ms", utc=True)
-        merged["close_time"] = pd.to_datetime(merged["close_time"], unit="ms", utc=True)
+        merged["open_time"] = pd.to_datetime(pd.to_numeric(merged["open_time"]), unit="ms", utc=True)
+        merged["close_time"] = pd.to_datetime(pd.to_numeric(merged["close_time"]), unit="ms", utc=True)
         merged.sort_values("open_time", inplace=True)
         merged.drop_duplicates(subset=["open_time"], keep="last", inplace=True)
         merged.reset_index(drop=True, inplace=True)
