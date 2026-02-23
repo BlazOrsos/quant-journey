@@ -9,7 +9,7 @@
     "data_paths": {
         "storage_format": "parquet",
         "log_path": "logs/",
-        "data_path": "data/"
+        "data_path": "data/crypto_pnd/"
     },
     "binance": {
         "api_key": "<your_binance_api_key>"
