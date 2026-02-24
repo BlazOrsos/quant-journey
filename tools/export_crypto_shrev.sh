@@ -17,7 +17,6 @@ git ls-files --error-unmatch src/utils/logger.py >/dev/null
 git ls-files --error-unmatch src/pipelines/shock_reversion_pipeline.py >/dev/null
 git ls-files --error-unmatch src/exchanges/binance_klines.py >/dev/null
 git ls-files --error-unmatch src/exchanges/binance_websocket.py >/dev/null
-git ls-files --error-unmatch src/strategies/shock_reversion.py >/dev/null
 git ls-files --error-unmatch src/data/storage.py >/dev/null
 
 echo "Filtering repo..."
@@ -27,7 +26,6 @@ git filter-repo \
   --path src/pipelines/shock_reversion_pipeline.py \
   --path src/exchanges/binance_klines.py \
   --path src/exchanges/binance_websocket.py \
-  --path src/strategies/shock_reversion.py \
   --path src/data/storage.py \
   --force
 
