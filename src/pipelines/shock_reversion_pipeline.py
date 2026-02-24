@@ -36,8 +36,7 @@ from utils.logger import setup_logger
 from exchanges.binance_klines import BinanceFuturesKlines
 from exchanges.binance_websocket import BinanceFuturesKlineStream
 
-# Will be imported once the strategy module is built:
-# from strategies.shock_reversion import ShockReversionSignalManager, SignalAction
+from strategies.shock_reversion import ShockReversionSignalManager, SignalAction
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -199,6 +198,7 @@ def hydrate_data(
 def build_candle_handler(
     config: dict,
     data_dir: Path,
+    signal_manager: ShockReversionSignalManager,
     logger: logging.Logger,
 ) -> Callable[[str, pd.DataFrame], None]:
     """
@@ -235,13 +235,21 @@ def build_candle_handler(
         merged.to_parquet(path, index=False)
 
         # — Step 2 & 3: Feature engineering + signal detection —
-        # TODO: wire up ShockReversionSignalManager once strategies/shock_reversion.py is built
-        # actions = signal_manager.update(ticker, merged)
-        # for signal in actions:
-        #     if signal.action == SignalAction.ENTER_SHORT:
-        #         logger.info(f"[{ticker}] *** ENTRY SIGNAL *** ...")
-        #     elif signal.action == SignalAction.EXIT_SHORT:
-        #         logger.info(f"[{ticker}] *** EXIT SIGNAL *** ...")
+        actions = signal_manager.update(ticker, merged)
+        for signal in actions:
+            if signal.action == SignalAction.ENTER_SHORT:
+                logger.info(
+                    f"[{ticker}] *** ENTRY SIGNAL *** "
+                    f"time={signal.signal_time}, price={signal.entry_price}, "
+                    f"ret_z={signal.ret_z:.2f}, vol_mean={signal.vol_mean:,.0f}"
+                )
+                # TODO: Stage 6 — pass to execution layer
+            elif signal.action == SignalAction.EXIT_SHORT:
+                logger.info(
+                    f"[{ticker}] *** EXIT SIGNAL *** "
+                    f"time={signal.signal_time}, reason={signal.reason}"
+                )
+                # TODO: Stage 6 — pass to execution layer
 
     return on_closed_candle
 
@@ -269,7 +277,14 @@ def run_websocket(
         f"{len(tickers)} tickers with data — subscribing to 1m WebSocket streams …"
     )
 
-    handler = build_candle_handler(config, data_dir, logger)
+    positions_path = ROOT / config["data_paths"]["signals_path"] / "active_positions.json"
+    signal_manager = ShockReversionSignalManager(
+        config=config,
+        logger=logger,
+        positions_path=positions_path,
+    )
+
+    handler = build_candle_handler(config, data_dir, signal_manager, logger)
 
     stream = BinanceFuturesKlineStream(
         tickers=tickers,
