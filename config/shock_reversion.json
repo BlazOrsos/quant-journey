@@ -1,0 +1,29 @@
+{
+    "strategy_name": "shock_reversion",
+    "description": "Crypto shock reversion strategy based on 1-minute candlestick data. Detects extreme z-score spikes and fades them over a 30-bar (30m) horizon.",
+    "log_level": "INFO",
+    "parameters": {
+        "lookback_bars": 240,
+        "candle_interval": "1m",
+        "exchange": "binance"
+    },
+    "strategy": {
+        "lookback_bars": 240,
+        "thresholds": {
+            "ret_z_min": 10.0,
+            "vol_mean_min": 5000000
+        },
+        "exit_params": {
+            "hold_bars": 30
+        }
+    },
+    "data_paths": {
+        "storage_format": "parquet",
+        "log_path": "logs/",
+        "data_path": "data/crypto_shock_reversion/data/",
+        "signals_path": "data/crypto_shock_reversion/signals/"
+    },
+    "binance": {
+        "api_key": "<your_binance_api_key>"
+    }
+}
