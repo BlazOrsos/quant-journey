@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -112,9 +113,14 @@ def build_candle_handler(
       2. Runs feature engineering  (placeholder — to be implemented).
       3. Runs signal detection     (placeholder — to be implemented).
     """
+
+    last_log_time = [0]  # Use a mutable object to allow modification in closure
+
     def on_closed_candle(ticker: str, candle: pd.DataFrame) -> None:
-        ts = candle["open_time"].iloc[0]
-        logger.debug(f"[{ticker}] Closed candle @ {ts}")
+        now = time.time()
+        if now - last_log_time[0] > 10:  # Log at most once every 10 seconds
+            logger.info("Received new closed candles from websocket.")
+            last_log_time[0] = now
 
         # --- Step 1: Update local storage ---
         existing = storage.read_ticker(ticker)
