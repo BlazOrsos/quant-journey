@@ -6,6 +6,21 @@
         "candle_interval": "4h",
         "exchange": "binance"
     },
+    "strategy": {
+        "lookback_days": 30,
+        "window_bars": 6,
+        "thresholds": {
+            "ret_z_min": 5.0,
+            "rvol_min": 5.0,
+            "count_z_min": 5.0,
+            "buy_ratio_min": 0.0,
+            "vol_mean_min": 5000000
+        },
+        "exit_params": {
+            "min_hold_bars": 6,
+            "max_hold_bars": 12
+        }
+    },
     "data_paths": {
         "storage_format": "parquet",
         "log_path": "logs/",

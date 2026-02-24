@@ -18,6 +18,7 @@ from exchanges.binance_vision import BinanceVisionClient
 from exchanges.binance_klines import BinanceFuturesKlines
 from data.storage import OHLCVStorage
 from exchanges.binance_websocket import BinanceFuturesKlineStream
+from strategies.pnd import PnDSignalManager, SignalAction
 
 
 # ---------------------------------------------------------------------------
@@ -105,13 +106,14 @@ def hydrate_data(
 
 def build_candle_handler(
     storage: OHLCVStorage,
+    signal_manager: PnDSignalManager,
     logger: logging.Logger,
 ) -> Callable[[str, pd.DataFrame], None]:
     """
     Return a closed-candle callback that:
       1. Merges the new candle into local Parquet storage.
-      2. Runs feature engineering  (placeholder — to be implemented).
-      3. Runs signal detection     (placeholder — to be implemented).
+      2. Runs feature engineering + signal detection via PnDSignalManager.
+      3. Logs any entry/exit signals (execution layer will consume these).
     """
 
     last_log_time = [0]  # Use a mutable object to allow modification in closure
@@ -128,13 +130,23 @@ def build_candle_handler(
         storage.write_ticker(ticker, merged)
         logger.debug(f"[{ticker}] Storage updated ({len(merged)} rows).")
 
-        # --- Step 2: Feature engineering (placeholder) ---
-        # features = compute_features(ticker, merged)
+        # --- Step 2 & 3: Feature engineering + signal detection ---
+        actions = signal_manager.update(ticker, merged)
 
-        # --- Step 3: Signal detection (placeholder) ---
-        # signals = detect_signals(ticker, features)
-        # if signals:
-        #     logger.info(f"[{ticker}] Signal detected: {signals}")
+        for signal in actions:
+            if signal.action == SignalAction.ENTER_SHORT:
+                logger.info(
+                    f"[{ticker}] *** ENTRY SIGNAL *** "
+                    f"time={signal.signal_time}, price={signal.entry_price}, "
+                    f"ret_z={signal.ret_z:.2f}, rvol={signal.rvol:.2f}"
+                )
+                # TODO: Stage 7 — pass to execution layer
+            elif signal.action == SignalAction.EXIT_SHORT:
+                logger.info(
+                    f"[{ticker}] *** EXIT SIGNAL *** "
+                    f"time={signal.signal_time}, reason={signal.reason}"
+                )
+                # TODO: Stage 7 — pass to execution layer
 
     return on_closed_candle
 
@@ -168,7 +180,12 @@ def run_websocket(
         logger=logger,
     )
 
-    handler = build_candle_handler(storage, logger)
+    positions_path = ROOT / "data" / "signals" / "active_positions.json"
+    signal_manager = PnDSignalManager(
+        config=config, logger=logger, positions_path=positions_path,
+    )
+
+    handler = build_candle_handler(storage, signal_manager, logger)
 
     stream = BinanceFuturesKlineStream(
         tickers=tickers,
