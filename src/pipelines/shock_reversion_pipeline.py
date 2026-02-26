@@ -302,7 +302,7 @@ def run_websocket(
         f"{len(tickers)} tickers with data — subscribing to 1m WebSocket streams …"
     )
 
-    positions_path = ROOT / config["data_paths"]["signals_path"] / "active_positions.json"
+    positions_path = ROOT / config["data_paths"]["signals_path"] / "positions.json"
     signal_manager = ShockReversionSignalManager(
         config=config,
         logger=logger,
