@@ -71,12 +71,23 @@ class ShockReversionSignal:
 
 @dataclass
 class ActivePosition:
-    """Tracks an open short, awaiting its fixed-hold exit."""
+    """Tracks a (short) position — both open and closed."""
     ticker:         str
     entry_time:     str             # ISO-8601 string (JSON-friendly)
+    entry_bar_index: int            # row index in the ticker's DataFrame at entry
     entry_price:    float
     bars_held:      int = 0
     hold_bars:      int = DEFAULT_EXIT_PARAMS["hold_bars"]
+    id:             str = ""       # unique key: {ticker}_{entry_time}
+    status:         str = "open"   # "open" or "closed"
+    exit_time:      Optional[str] = None   # ISO-8601 string
+    exit_price:     Optional[float] = None
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            # Normalise entry_time to a filesystem-safe string for the key
+            safe_ts = self.entry_time.replace(" ", "T").replace(":", "-")
+            self.id = f"{self.ticker}_{safe_ts}"
 
 
 # ---------------------------------------------------------------------------
@@ -85,18 +96,24 @@ class ActivePosition:
 
 class PositionStore:
     """
-    Persists active shock-reversion positions to a JSON file so they survive
-    restarts and can be consumed independently by the execution layer.
+    Persists all shock-reversion positions (open + closed) to a JSON file
+    so they survive restarts and can be consumed independently by the
+    execution layer.
 
-    File layout (``data/crypto_shock_reversion/signals/active_positions.json``)::
+    File layout (``data/crypto_shock_reversion/signals/positions.json``)::
 
         [
           {
             "ticker": "BTCUSDT",
             "entry_time": "2026-02-24T12:00:00+00:00",
+            "entry_bar_index": 239,
             "entry_price": 95000.0,
-            "bars_held": 5,
-            "hold_bars": 30
+            "bars_held": 30,
+            "hold_bars": 30,
+            "id": "BTCUSDT_2026-02-24T12-00-00+00-00",
+            "status": "closed",
+            "exit_time": "2026-02-24T12:30:00+00:00",
+            "exit_price": 94800.0
           },
           ...
         ]
@@ -257,17 +274,33 @@ class ShockReversionSignalManager:
         self.thresholds:    dict = strategy.get("thresholds",    DEFAULT_THRESHOLDS)
         self.exit_params:   dict = strategy.get("exit_params",   DEFAULT_EXIT_PARAMS)
 
+        # Position persistence
         if positions_path is None:
             positions_path = (
-                Path("data") / "crypto_shock_reversion" / "signals" / "active_positions.json"
+                Path("data") / "crypto_shock_reversion" / "signals" / "positions.json"
             )
         self.position_store = PositionStore(positions_path)
-        self.active_positions: list[ActivePosition] = self.position_store.load()
+        self._all_positions: list[ActivePosition] = self.position_store.load()
 
-        if self.active_positions:
+        active = [p for p in self._all_positions if p.status == "open"]
+        if active:
             self.logger.info(
-                f"Restored {len(self.active_positions)} active positions from disk."
+                f"Restored {len(active)} active positions from disk "
+                f"({len(self._all_positions)} total on file)."
             )
+
+    # ------------------------------------------------------------------
+    # Persistence helpers
+    # ------------------------------------------------------------------
+
+    @property
+    def active_positions(self) -> list[ActivePosition]:
+        """Return only open positions."""
+        return [p for p in self._all_positions if p.status == "open"]
+
+    def _persist(self) -> None:
+        """Flush all positions (open + closed) to disk."""
+        self.position_store.save(self._all_positions)
 
     # ------------------------------------------------------------------
     # Public API
@@ -297,35 +330,46 @@ class ShockReversionSignalManager:
         new_entries = detect_signals_for_ticker(
             feat, ticker, thresholds=self.thresholds, only_last_n=1,
         )
-        for sig in new_entries:
-            self.logger.info(
-                f"[{ticker}] SHOCK SIGNAL — ret_z={sig.ret_z:.2f}, "
-                f"vol_mean={sig.vol_mean:,.0f}, price={sig.entry_price}"
-            )
-            self.active_positions.append(
-                ActivePosition(
-                    ticker=ticker,
-                    entry_time=str(sig.signal_time),
-                    entry_price=sig.entry_price,
-                    hold_bars=self.exit_params.get("hold_bars", DEFAULT_EXIT_PARAMS["hold_bars"]),
+        if new_entries:
+            for sig in new_entries:
+                self.logger.info(
+                    f"[{ticker}] SHOCK SIGNAL — ret_z={sig.ret_z:.2f}, "
+                    f"vol_mean={sig.vol_mean:,.0f}, price={sig.entry_price}"
                 )
-            )
-        actions.extend(new_entries)
+                # Register the position for exit tracking
+                self._all_positions.append(
+                    ActivePosition(
+                        ticker=ticker,
+                        entry_time=str(sig.signal_time),
+                        entry_bar_index=len(feat) - 1,
+                        entry_price=sig.entry_price,
+                        hold_bars=self.exit_params.get("hold_bars", DEFAULT_EXIT_PARAMS["hold_bars"]),
+                    )
+                )
+            actions.extend(new_entries)
 
         # --- Exit evaluation (fixed hold) ---
         exits = self._evaluate_exits(ticker, feat)
         actions.extend(exits)
 
+        # Persist after every update that produced actions
         if actions:
-            self.position_store.save(self.active_positions)
+            self._persist()
 
         return actions
 
     def get_active_positions(self, ticker: Optional[str] = None) -> list[ActivePosition]:
-        """Return active positions, optionally filtered by ticker."""
+        """Return open positions, optionally filtered by ticker."""
+        positions = self.active_positions
+        if ticker is not None:
+            positions = [p for p in positions if p.ticker == ticker]
+        return positions
+
+    def get_all_positions(self, ticker: Optional[str] = None) -> list[ActivePosition]:
+        """Return all positions (open + closed), optionally filtered by ticker."""
         if ticker is None:
-            return list(self.active_positions)
-        return [p for p in self.active_positions if p.ticker == ticker]
+            return list(self._all_positions)
+        return [p for p in self._all_positions if p.ticker == ticker]
 
     # ------------------------------------------------------------------
     # Exit logic
@@ -339,15 +383,16 @@ class ShockReversionSignalManager:
         """
         Increment ``bars_held`` for every active position on *ticker* and
         emit an ``EXIT_SHORT`` signal once the fixed ``hold_bars`` is reached.
+
+        Exited positions are marked as ``status="closed"`` with
+        ``exit_time`` and ``exit_price`` set (they remain in the file).
         """
-        exits:     list[ShockReversionSignal] = []
-        remaining: list[ActivePosition]       = []
+        exits: list[ShockReversionSignal] = []
 
         latest_row = feat.iloc[-1] if not feat.empty else None
 
         for pos in self.active_positions:
             if pos.ticker != ticker:
-                remaining.append(pos)
                 continue
 
             pos.bars_held += 1
@@ -356,6 +401,11 @@ class ShockReversionSignalManager:
                 current_price = float(latest_row["close"]) if latest_row is not None else None
                 current_time  = latest_row["open_time"]    if latest_row is not None else None
                 reason        = f"hold_{pos.hold_bars}_bars_expired"
+
+                # Mark position as closed (stays in file)
+                pos.status = "closed"
+                pos.exit_time = str(current_time) if current_time is not None else None
+                pos.exit_price = current_price
 
                 exits.append(
                     ShockReversionSignal(
@@ -367,10 +417,8 @@ class ShockReversionSignalManager:
                     )
                 )
                 self.logger.info(
-                    f"[{ticker}] EXIT SIGNAL — bars_held={pos.bars_held}, reason={reason}"
+                    f"[{ticker}] EXIT SIGNAL — id={pos.id}, "
+                    f"bars_held={pos.bars_held}, reason={reason}"
                 )
-            else:
-                remaining.append(pos)
 
-        self.active_positions = remaining
         return exits
