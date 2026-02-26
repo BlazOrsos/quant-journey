@@ -129,11 +129,23 @@ class OHLCVStorage:
         return self.data_dir / f"{ticker}.parquet"
 
     def read_ticker(self, ticker: str) -> Optional[pd.DataFrame]:
-        """Return the stored DataFrame for *ticker*, or ``None`` if absent."""
+        """Return the stored DataFrame for *ticker*, or ``None`` if absent.
+
+        If the file is corrupt (e.g. partial write), it is deleted so the
+        next sync can re-hydrate the data cleanly.
+        """
         path = self._parquet_path(ticker)
         if not path.exists():
             return None
-        df = pd.read_parquet(path)
+        try:
+            df = pd.read_parquet(path)
+        except (OSError, Exception) as exc:
+            self.logger.warning(
+                f"[{ticker}] Corrupt parquet file detected — deleting "
+                f"{path.name} so it can be re-hydrated. Error: {exc}"
+            )
+            path.unlink(missing_ok=True)
+            return None
         if df.empty:
             return None
         return df
@@ -145,6 +157,9 @@ class OHLCVStorage:
         Before writing the data is normalised (consistent dtypes, sorted,
         de-duplicated) and trimmed so that only rows within the lookback
         window (plus a 5-day buffer) are kept.
+
+        Writes to a temporary file first, then replaces the target
+        atomically to prevent corruption from interrupted writes.
         """
         if df is None or df.empty:
             return
@@ -154,7 +169,14 @@ class OHLCVStorage:
         )
         df = df[df["open_time"] >= cutoff].copy()
         df.reset_index(drop=True, inplace=True)
-        df.to_parquet(self._parquet_path(ticker), index=False)
+        target = self._parquet_path(ticker)
+        tmp = target.with_suffix(".parquet.tmp")
+        try:
+            df.to_parquet(tmp, index=False)
+            tmp.replace(target)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
 
     # ------------------------------------------------------------------
     # Three-phase sync
