@@ -7,6 +7,7 @@ from datetime import datetime
 import pandas as pd
 
 class BinanceAdapter(ExchangeAdapter):
+    
     def fetch_funding(self, symbol, start_ts):
         exchange = ccxt.binance()
         exchange.options['defaultType'] = 'future'

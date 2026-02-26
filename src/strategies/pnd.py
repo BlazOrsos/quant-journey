@@ -93,6 +93,9 @@ class PnDSignal:
     buy_ratio: Optional[float] = None
     r_24h: Optional[float] = None
 
+    # Set by PnDSignalManager to link signal → position
+    position_id: Optional[str] = None
+
 
 @dataclass
 class ActivePosition:
@@ -108,6 +111,11 @@ class ActivePosition:
     status: str = "open"          # "open" or "closed"
     exit_time: Optional[str] = None   # ISO-8601 string
     exit_price: Optional[float] = None
+
+    # Trade execution details (filled by pipeline after Binance order)
+    order_id: Optional[str] = None        # Binance entry order ID
+    quantity: Optional[float] = None      # base-asset quantity traded
+    exit_order_id: Optional[str] = None   # Binance exit order ID
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -425,16 +433,16 @@ class PnDSignalManager:
                     f"buy_ratio={sig.buy_ratio:.3f}, r_24h={sig.r_24h:.4f}"
                 )
                 # Register the position for exit tracking
-                self._all_positions.append(
-                    ActivePosition(
-                        ticker=ticker,
-                        entry_time=str(sig.signal_time),
-                        entry_bar_index=len(feat) - 1,
-                        entry_price=sig.entry_price,
-                        min_hold_bars=self.exit_params.get("min_hold_bars", 6),
-                        max_hold_bars=self.exit_params.get("max_hold_bars", 12),
-                    )
+                pos = ActivePosition(
+                    ticker=ticker,
+                    entry_time=str(sig.signal_time),
+                    entry_bar_index=len(feat) - 1,
+                    entry_price=sig.entry_price,
+                    min_hold_bars=self.exit_params.get("min_hold_bars", 6),
+                    max_hold_bars=self.exit_params.get("max_hold_bars", 12),
                 )
+                self._all_positions.append(pos)
+                sig.position_id = pos.id
             actions.extend(new_entries)
 
         # --- Exit evaluation ---
@@ -473,6 +481,33 @@ class PnDSignalManager:
         if ticker is None:
             return list(self._all_positions)
         return [p for p in self._all_positions if p.ticker == ticker]
+
+    def get_position_by_id(self, position_id: str) -> Optional[ActivePosition]:
+        """Look up a position by its unique ID."""
+        for p in self._all_positions:
+            if p.id == position_id:
+                return p
+        return None
+
+    def update_position_trade(
+        self,
+        position_id: str,
+        order_id: Optional[str] = None,
+        quantity: Optional[float] = None,
+        exit_order_id: Optional[str] = None,
+    ) -> None:
+        """Update a position with trade execution details and persist."""
+        pos = self.get_position_by_id(position_id)
+        if pos is None:
+            self.logger.warning(f"Position {position_id} not found for trade update.")
+            return
+        if order_id is not None:
+            pos.order_id = order_id
+        if quantity is not None:
+            pos.quantity = quantity
+        if exit_order_id is not None:
+            pos.exit_order_id = exit_order_id
+        self._persist()
 
     # ------------------------------------------------------------------
     # Exit logic
@@ -539,6 +574,7 @@ class PnDSignalManager:
                         signal_time=current_time,
                         entry_price=current_price,
                         reason=reason,
+                        position_id=pos.id,
                     )
                 )
                 self.logger.debug(

@@ -23,7 +23,12 @@
         "data_path": "data/crypto_shock_reversion/data/",
         "signals_path": "data/crypto_shock_reversion/signals/"
     },
+    "execution": {
+        "position_size_usdt": 100.0,
+        "dry_run": true
+    },
     "binance": {
-        "api_key": "<your_binance_api_key>"
+        "api_key": "<your_binance_api_key>",
+        "api_secret": "<your_binance_api_secret>"
     }
 }

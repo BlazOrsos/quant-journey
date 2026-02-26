@@ -68,6 +68,9 @@ class ShockReversionSignal:
     ret_z:    Optional[float] = None
     vol_mean: Optional[float] = None
 
+    # Set by ShockReversionSignalManager to link signal → position
+    position_id: Optional[str] = None
+
 
 @dataclass
 class ActivePosition:
@@ -82,6 +85,11 @@ class ActivePosition:
     status:         str = "open"   # "open" or "closed"
     exit_time:      Optional[str] = None   # ISO-8601 string
     exit_price:     Optional[float] = None
+
+    # Trade execution details (filled by pipeline after Binance order)
+    order_id:       Optional[str] = None   # Binance entry order ID
+    quantity:       Optional[float] = None # base-asset quantity traded
+    exit_order_id:  Optional[str] = None   # Binance exit order ID
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -337,15 +345,15 @@ class ShockReversionSignalManager:
                     f"vol_mean={sig.vol_mean:,.0f}, price={sig.entry_price}"
                 )
                 # Register the position for exit tracking
-                self._all_positions.append(
-                    ActivePosition(
-                        ticker=ticker,
-                        entry_time=str(sig.signal_time),
-                        entry_bar_index=len(feat) - 1,
-                        entry_price=sig.entry_price,
-                        hold_bars=self.exit_params.get("hold_bars", DEFAULT_EXIT_PARAMS["hold_bars"]),
-                    )
+                pos = ActivePosition(
+                    ticker=ticker,
+                    entry_time=str(sig.signal_time),
+                    entry_bar_index=len(feat) - 1,
+                    entry_price=sig.entry_price,
+                    hold_bars=self.exit_params.get("hold_bars", DEFAULT_EXIT_PARAMS["hold_bars"]),
                 )
+                self._all_positions.append(pos)
+                sig.position_id = pos.id
             actions.extend(new_entries)
 
         # --- Exit evaluation (fixed hold) ---
@@ -370,6 +378,33 @@ class ShockReversionSignalManager:
         if ticker is None:
             return list(self._all_positions)
         return [p for p in self._all_positions if p.ticker == ticker]
+
+    def get_position_by_id(self, position_id: str) -> Optional[ActivePosition]:
+        """Look up a position by its unique ID."""
+        for p in self._all_positions:
+            if p.id == position_id:
+                return p
+        return None
+
+    def update_position_trade(
+        self,
+        position_id: str,
+        order_id: Optional[str] = None,
+        quantity: Optional[float] = None,
+        exit_order_id: Optional[str] = None,
+    ) -> None:
+        """Update a position with trade execution details and persist."""
+        pos = self.get_position_by_id(position_id)
+        if pos is None:
+            self.logger.warning(f"Position {position_id} not found for trade update.")
+            return
+        if order_id is not None:
+            pos.order_id = order_id
+        if quantity is not None:
+            pos.quantity = quantity
+        if exit_order_id is not None:
+            pos.exit_order_id = exit_order_id
+        self._persist()
 
     # ------------------------------------------------------------------
     # Exit logic
@@ -414,6 +449,7 @@ class ShockReversionSignalManager:
                         signal_time=current_time,
                         entry_price=current_price,
                         reason=reason,
+                        position_id=pos.id,
                     )
                 )
                 self.logger.info(

@@ -19,6 +19,7 @@ from exchanges.binance_klines import BinanceFuturesKlines
 from data.storage import OHLCVStorage
 from exchanges.binance_websocket import BinanceFuturesKlineStream
 from strategies.pnd import PnDSignalManager, SignalAction
+from execution.binance_trader import BinanceFuturesTrader
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +109,7 @@ def build_candle_handler(
     storage: OHLCVStorage,
     signal_manager: PnDSignalManager,
     logger: logging.Logger,
+    trader: BinanceFuturesTrader,
 ) -> Callable[[str, pd.DataFrame], None]:
     """
     Return a closed-candle callback that:
@@ -140,13 +142,36 @@ def build_candle_handler(
                     f"time={signal.signal_time}, price={signal.entry_price}, "
                     f"ret_z={signal.ret_z:.2f}, rvol={signal.rvol:.2f}"
                 )
-                # TODO: Stage 7 — pass to execution layer
+                # --- Execute short entry on Binance ---
+                order = trader.open_short(ticker)
+                if order and signal.position_id:
+                    signal_manager.update_position_trade(
+                        signal.position_id,
+                        order_id=str(order["id"]),
+                        quantity=float(order["filled"]),
+                    )
             elif signal.action == SignalAction.EXIT_SHORT:
                 logger.info(
                     f"[{ticker}] *** EXIT SIGNAL *** "
                     f"time={signal.signal_time}, reason={signal.reason}"
                 )
-                # TODO: Stage 7 — pass to execution layer
+                # --- Execute short exit on Binance ---
+                pos = (
+                    signal_manager.get_position_by_id(signal.position_id)
+                    if signal.position_id else None
+                )
+                if pos and pos.quantity:
+                    order = trader.close_short(ticker, pos.quantity)
+                    if order:
+                        signal_manager.update_position_trade(
+                            signal.position_id,
+                            exit_order_id=str(order["id"]),
+                        )
+                else:
+                    logger.warning(
+                        f"[{ticker}] Cannot close — no quantity for "
+                        f"position {signal.position_id}"
+                    )
 
     return on_closed_candle
 
@@ -185,7 +210,9 @@ def run_websocket(
         config=config, logger=logger, positions_path=positions_path,
     )
 
-    handler = build_candle_handler(storage, signal_manager, logger)
+    trader = BinanceFuturesTrader(config, logger)
+
+    handler = build_candle_handler(storage, signal_manager, logger, trader)
 
     stream = BinanceFuturesKlineStream(
         tickers=tickers,

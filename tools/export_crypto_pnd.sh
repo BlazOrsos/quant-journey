@@ -17,6 +17,7 @@ git ls-files --error-unmatch src/pipelines/pnd_pipeline.py >/dev/null
 git ls-files --error-unmatch src/exchanges/binance_vision.py >/dev/null
 git ls-files --error-unmatch src/exchanges/binance_klines.py >/dev/null
 git ls-files --error-unmatch src/exchanges/binance_websocket.py >/dev/null
+git ls-files --error-unmatch src/execution/binance_trader.py >/dev/null
 git ls-files --error-unmatch src/strategies/pnd.py >/dev/null
 git ls-files --error-unmatch src/data/storage.py >/dev/null
 git ls-files --error-unmatch config/pnd_config.json >/dev/null
@@ -28,6 +29,7 @@ git filter-repo \
   --path src/exchanges/binance_vision.py \
   --path src/exchanges/binance_klines.py \
   --path src/exchanges/binance_websocket.py \
+  --path src/execution/binance_trader.py \
   --path src/strategies/pnd.py \
   --path src/data/storage.py \
   --path config/pnd_config.json \
