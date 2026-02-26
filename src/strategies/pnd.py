@@ -96,7 +96,7 @@ class PnDSignal:
 
 @dataclass
 class ActivePosition:
-    """Tracks an open (short) position awaiting exit."""
+    """Tracks a (short) position — both open and closed."""
     ticker: str
     entry_time: str               # ISO-8601 string (JSON-friendly)
     entry_bar_index: int          # row index in the ticker's DataFrame at entry
@@ -104,6 +104,16 @@ class ActivePosition:
     bars_held: int = 0
     min_hold_bars: int = 6
     max_hold_bars: int = 12
+    id: str = ""                  # unique key: {ticker}_{entry_time}
+    status: str = "open"          # "open" or "closed"
+    exit_time: Optional[str] = None   # ISO-8601 string
+    exit_price: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            # Normalise entry_time to a filesystem-safe string for the key
+            safe_ts = self.entry_time.replace(" ", "T").replace(":", "-")
+            self.id = f"{self.ticker}_{safe_ts}"
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +125,7 @@ class PositionStore:
     Persists active positions to a JSON file so they survive restarts and
     can be read independently by the execution layer.
 
-    File layout (``data/signals/active_positions.json``)::
+    File layout (``data/signals/positions.json``)::
 
         [
           {
@@ -125,7 +135,11 @@ class PositionStore:
             "entry_price": 95000.0,
             "bars_held": 2,
             "min_hold_bars": 6,
-            "max_hold_bars": 12
+            "max_hold_bars": 12,
+            "id": "BTCUSDT_2026-02-24T04-00-00+00-00",
+            "status": "open",
+            "exit_time": null,
+            "exit_price": null
           },
           ...
         ]
@@ -346,22 +360,29 @@ class PnDSignalManager:
 
         # Position persistence
         if positions_path is None:
-            positions_path = Path("data") / "signals" / "active_positions.json"
+            positions_path = Path("data") / "signals" / "positions.json"
         self.position_store = PositionStore(positions_path)
-        self.active_positions: list[ActivePosition] = self.position_store.load()
+        self._all_positions: list[ActivePosition] = self.position_store.load()
 
-        if self.active_positions:
+        active = [p for p in self._all_positions if p.status == "open"]
+        if active:
             self.logger.info(
-                f"Restored {len(self.active_positions)} active positions from disk."
+                f"Restored {len(active)} active positions from disk "
+                f"({len(self._all_positions)} total on file)."
             )
 
     # ------------------------------------------------------------------
     # Persistence helpers
     # ------------------------------------------------------------------
 
+    @property
+    def active_positions(self) -> list[ActivePosition]:
+        """Return only open positions."""
+        return [p for p in self._all_positions if p.status == "open"]
+
     def _persist(self) -> None:
-        """Flush current positions to disk."""
-        self.position_store.save(self.active_positions)
+        """Flush all positions (open + closed) to disk."""
+        self.position_store.save(self._all_positions)
 
     # ------------------------------------------------------------------
     # Public API
@@ -404,7 +425,7 @@ class PnDSignalManager:
                     f"buy_ratio={sig.buy_ratio:.3f}, r_24h={sig.r_24h:.4f}"
                 )
                 # Register the position for exit tracking
-                self.active_positions.append(
+                self._all_positions.append(
                     ActivePosition(
                         ticker=ticker,
                         entry_time=str(sig.signal_time),
@@ -441,10 +462,17 @@ class PnDSignalManager:
         return all_actions
 
     def get_active_positions(self, ticker: Optional[str] = None) -> list[ActivePosition]:
-        """Return active positions, optionally filtered by ticker."""
+        """Return open positions, optionally filtered by ticker."""
+        positions = self.active_positions
+        if ticker is not None:
+            positions = [p for p in positions if p.ticker == ticker]
+        return positions
+
+    def get_all_positions(self, ticker: Optional[str] = None) -> list[ActivePosition]:
+        """Return all positions (open + closed), optionally filtered by ticker."""
         if ticker is None:
-            return list(self.active_positions)
-        return [p for p in self.active_positions if p.ticker == ticker]
+            return list(self._all_positions)
+        return [p for p in self._all_positions if p.ticker == ticker]
 
     # ------------------------------------------------------------------
     # Exit logic
@@ -463,17 +491,15 @@ class PnDSignalManager:
           is negative (i.e. short is profitable), exit immediately.
         - After ``max_hold_bars`` (48h): exit unconditionally.
 
-        Returns a list of EXIT_SHORT signals.  Exited positions are removed
-        from ``self.active_positions``.
+        Returns a list of EXIT_SHORT signals.  Exited positions are marked
+        as ``status="closed"`` with ``exit_time`` and ``exit_price`` set.
         """
         exits: list[PnDSignal] = []
-        remaining: list[ActivePosition] = []
 
         latest_row = feat.iloc[-1] if not feat.empty else None
 
         for pos in self.active_positions:
             if pos.ticker != ticker:
-                remaining.append(pos)
                 continue
 
             pos.bars_held += 1
@@ -501,6 +527,11 @@ class PnDSignalManager:
                 current_price = float(latest_row["close"]) if latest_row is not None else None
                 current_time = latest_row["open_time"] if latest_row is not None else None
 
+                # Mark position as closed (stays in file)
+                pos.status = "closed"
+                pos.exit_time = str(current_time) if current_time is not None else None
+                pos.exit_price = current_price
+
                 exits.append(
                     PnDSignal(
                         ticker=ticker,
@@ -511,11 +542,8 @@ class PnDSignalManager:
                     )
                 )
                 self.logger.debug(
-                    f"[{ticker}] EXIT SIGNAL — bars_held={pos.bars_held}, "
-                    f"reason={reason}"
+                    f"[{ticker}] EXIT SIGNAL — id={pos.id}, "
+                    f"bars_held={pos.bars_held}, reason={reason}"
                 )
-            else:
-                remaining.append(pos)
 
-        self.active_positions = remaining
         return exits

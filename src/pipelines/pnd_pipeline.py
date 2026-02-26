@@ -180,7 +180,7 @@ def run_websocket(
         logger=logger,
     )
 
-    positions_path = ROOT / "data" / "signals" / "active_positions.json"
+    positions_path = ROOT / "data" / "signals" / "positions.json"
     signal_manager = PnDSignalManager(
         config=config, logger=logger, positions_path=positions_path,
     )
