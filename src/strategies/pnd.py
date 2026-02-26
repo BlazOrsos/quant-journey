@@ -398,7 +398,7 @@ class PnDSignalManager:
         )
         if new_entries:
             for sig in new_entries:
-                self.logger.info(
+                self.logger.debug(
                     f"[{ticker}] PUMP SIGNAL — ret_z={sig.ret_z:.2f}, "
                     f"rvol={sig.rvol:.2f}, count_z={sig.count_z:.2f}, "
                     f"buy_ratio={sig.buy_ratio:.3f}, r_24h={sig.r_24h:.4f}"
@@ -510,7 +510,7 @@ class PnDSignalManager:
                         reason=reason,
                     )
                 )
-                self.logger.info(
+                self.logger.debug(
                     f"[{ticker}] EXIT SIGNAL — bars_held={pos.bars_held}, "
                     f"reason={reason}"
                 )
