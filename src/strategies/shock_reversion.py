@@ -235,7 +235,7 @@ def detect_signals_for_ticker(
                 ShockReversionSignal(
                     ticker=ticker,
                     action=SignalAction.ENTER_SHORT,
-                    signal_time=row["open_time"],
+                    signal_time=row["close_time"],
                     entry_price=float(row["close"]),
                     reason="shock_detected",
                     ret_z=float(row["ret_z"]),
@@ -357,11 +357,14 @@ class ShockReversionSignalManager:
             actions.extend(new_entries)
 
         # --- Exit evaluation (fixed hold) ---
+        had_active_positions = any(p.ticker == ticker for p in self.active_positions)
         exits = self._evaluate_exits(ticker, feat)
         actions.extend(exits)
 
-        # Persist after every update that produced actions
-        if actions:
+        # Persist if signals were generated OR if bars_held was incremented
+        # (active positions have bars_held incremented on every candle even
+        # when no exit is triggered, so we must persist those too)
+        if actions or had_active_positions:
             self._persist()
 
         return actions
