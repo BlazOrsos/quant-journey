@@ -12,7 +12,7 @@ git clone --no-local --branch main --single-branch . "$TMP_DIR"
 cd "$TMP_DIR"
 
 echo "Verifying paths exist (tracked files)..."
-#git ls-files --error-unmatch config/shock_reversion.json >/dev/null
+git ls-files --error-unmatch config/shock_reversion.json >/dev/null
 git ls-files --error-unmatch src/utils/logger.py >/dev/null
 git ls-files --error-unmatch src/pipelines/shock_reversion_pipeline.py >/dev/null
 git ls-files --error-unmatch src/exchanges/binance_klines.py >/dev/null
@@ -23,7 +23,7 @@ git ls-files --error-unmatch src/data/storage.py >/dev/null
 
 echo "Filtering repo..."
 git filter-repo \
-  #--path config/shock_reversion.json \
+  --path config/shock_reversion.json \
   --path src/utils/logger.py \
   --path src/pipelines/shock_reversion_pipeline.py \
   --path src/exchanges/binance_klines.py \
