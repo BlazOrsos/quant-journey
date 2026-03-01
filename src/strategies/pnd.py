@@ -551,15 +551,22 @@ class PnDSignalManager:
                 reason = f"max_hold_{pos.max_hold_bars}_bars"
             elif pos.bars_held >= pos.min_hold_bars:
                 # After 24h: exit if the short is in profit (price dropped)
-                # Compute cumulative log return since entry
-                entry_idx = pos.entry_bar_index
-                if entry_idx < len(feat) - 1:
-                    post_entry = feat.iloc[entry_idx + 1 : len(feat)]
-                    cum_ret = post_entry["log_ret"].sum() if not post_entry.empty else 0.0
-                    # For a short: we profit when cum_ret < 0 (price dropped)
-                    if cum_ret < 0:
-                        should_exit = True
-                        reason = f"exit_at_{pos.bars_held}_bars_ret={cum_ret:.4f}"
+                # Locate the entry bar by timestamp so this is robust to any
+                # DataFrame window size (integer entry_bar_index can drift when
+                # the caller passes a rolling fixed-size window).
+                entry_ts = pd.Timestamp(pos.entry_time)
+                entry_close_mask = feat["close_time"] == entry_ts
+                if entry_close_mask.any():
+                    entry_pos = feat.index[entry_close_mask][0]
+                    post_entry = feat.iloc[entry_pos + 1 :]
+                else:
+                    # Fallback: all bars whose open_time is after entry close
+                    post_entry = feat[feat["open_time"] >= entry_ts]
+                cum_ret = post_entry["log_ret"].sum() if not post_entry.empty else 0.0
+                # For a short: we profit when cum_ret < 0 (price dropped)
+                if cum_ret < 0:
+                    should_exit = True
+                    reason = f"exit_at_{pos.bars_held}_bars_ret={cum_ret:.4f}"
 
             if should_exit:
                 current_price = float(latest_row["close"]) if latest_row is not None else None
