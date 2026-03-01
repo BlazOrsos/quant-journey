@@ -67,6 +67,7 @@ class BinanceFuturesTrader:
         execution_cfg = config.get("execution", {})
 
         self.position_size_usdt: float = execution_cfg.get("position_size_usdt", 100.0)
+        self.leverage: int = execution_cfg.get("leverage", 1)
         self.dry_run: bool = execution_cfg.get("dry_run", True)
 
         self.exchange = ccxt.binance({
@@ -81,7 +82,7 @@ class BinanceFuturesTrader:
         mode = "DRY RUN" if self.dry_run else "LIVE"
         self.logger.info(
             f"BinanceFuturesTrader initialised — mode={mode}, "
-            f"position_size=${self.position_size_usdt}"
+            f"position_size=${self.position_size_usdt}, leverage={self.leverage}x"
         )
 
     # ------------------------------------------------------------------
@@ -104,6 +105,16 @@ class BinanceFuturesTrader:
         market = self.exchange.market(ticker)
         return market["symbol"]
 
+    def _set_leverage(self, ccxt_symbol: str) -> None:
+        """Set the configured leverage for *ccxt_symbol* on Binance."""
+        if self.dry_run:
+            self.logger.info(
+                f"[DRY RUN] set_leverage {ccxt_symbol}: {self.leverage}x"
+            )
+            return
+        self.exchange.set_leverage(self.leverage, ccxt_symbol)
+        self.logger.debug(f"Leverage set to {self.leverage}x for {ccxt_symbol}.")
+
     def _calculate_quantity(
         self,
         ccxt_symbol: str,
@@ -111,6 +122,10 @@ class BinanceFuturesTrader:
     ) -> tuple[float, float]:
         """
         Calculate the order quantity in base asset for a given USDT notional.
+
+        *size_usdt* is the gross notional value of the position (matching
+        the Binance UI). Leverage controls the margin required but does
+        not affect the notional size.
 
         Returns
         -------
@@ -159,13 +174,14 @@ class BinanceFuturesTrader:
         size = size_usdt or self.position_size_usdt
         try:
             ccxt_symbol = self._to_ccxt_symbol(ticker)
+            self._set_leverage(ccxt_symbol)
             qty, price = self._calculate_quantity(ccxt_symbol, size)
 
             if self.dry_run:
                 order_id = f"DRY_{ticker}_{int(time.time() * 1000)}"
                 self.logger.info(
                     f"[DRY RUN] open_short {ticker}: "
-                    f"qty={qty}, price≈{price:.4f}, size=${size}"
+                    f"qty={qty}, price≈{price:.4f}, size=${size}, leverage={self.leverage}x"
                 )
                 return {
                     "id": order_id,

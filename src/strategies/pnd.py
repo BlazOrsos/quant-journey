@@ -46,6 +46,8 @@ DEFAULT_THRESHOLDS = {
     "vol_mean_min": 5_000_000, # Minimum average 24h volume (liquidity filter)
 }
 
+DEFAULT_LEVERAGE = 5
+
 # Exit parameters
 DEFAULT_EXIT_PARAMS = {
     "min_hold_bars": 6,        # 24h minimum hold  (6 × 4h bars)
@@ -359,12 +361,14 @@ class PnDSignalManager:
 
         params = self.config.get("parameters", {})
         strategy = self.config.get("strategy", {})
+        execution = self.config.get("execution", {})
 
         self.candle_interval: str = params.get("candle_interval", "4h")
         self.lookback_days: int = strategy.get("lookback_days", DEFAULT_LOOKBACK_DAYS)
         self.window_bars: int = strategy.get("window_bars", DEFAULT_WINDOW_BARS)
         self.thresholds: dict = strategy.get("thresholds", DEFAULT_THRESHOLDS)
         self.exit_params: dict = strategy.get("exit_params", DEFAULT_EXIT_PARAMS)
+        self.leverage: int = execution.get("leverage", DEFAULT_LEVERAGE)
 
         # Position persistence
         if positions_path is None:

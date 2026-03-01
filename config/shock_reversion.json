@@ -24,8 +24,9 @@
         "signals_path": "data/crypto_shock_reversion/signals/"
     },
     "execution": {
-        "position_size_usdt": 100.0,
-        "dry_run": true
+        "position_size_usdt": 30.0,
+        "leverage": 5,
+        "dry_run": false
     },
     "binance": {
         "api_key": "<your_binance_api_key>",

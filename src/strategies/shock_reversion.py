@@ -42,6 +42,8 @@ DEFAULT_EXIT_PARAMS = {
     "hold_bars": 30,                 # Fixed 30-minute hold; exit unconditionally
 }
 
+DEFAULT_LEVERAGE = 5
+
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -276,11 +278,13 @@ class ShockReversionSignalManager:
         self.logger = logger or logging.getLogger(__name__)
         self.config = config or {}
 
-        strategy = self.config.get("strategy", {})
+        strategy  = self.config.get("strategy",   {})
+        execution = self.config.get("execution",  {})
 
         self.lookback_bars: int  = strategy.get("lookback_bars", DEFAULT_LOOKBACK_BARS)
         self.thresholds:    dict = strategy.get("thresholds",    DEFAULT_THRESHOLDS)
         self.exit_params:   dict = strategy.get("exit_params",   DEFAULT_EXIT_PARAMS)
+        self.leverage:      int  = execution.get("leverage",     DEFAULT_LEVERAGE)
 
         # Position persistence
         if positions_path is None:
