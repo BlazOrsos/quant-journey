@@ -11,7 +11,7 @@
         "lookback_bars": 240,
         "thresholds": {
             "ret_z_min": 10.0,
-            "vol_mean_min": 5000000
+            "vol_mean_min": 1000000
         },
         "exit_params": {
             "hold_bars": 30
