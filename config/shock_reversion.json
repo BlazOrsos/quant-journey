@@ -10,11 +10,11 @@
     "strategy": {
         "lookback_bars": 240,
         "thresholds": {
-            "ret_z_min": 10.0,
-            "vol_mean_min": 1000000
+            "ret_z_min": 20.0,
+            "quote_vol_mean_min": 10000
         },
         "exit_params": {
-            "hold_bars": 30
+            "hold_bars": 5
         }
     },
     "data_paths": {

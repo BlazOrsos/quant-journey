@@ -6,9 +6,9 @@ Stages 5 & 6 of the shock-reversion pipeline.
 Signal flow
 -----------
 1. ``compute_features(df)`` — takes a single-ticker OHLCV DataFrame,
-   returns it with appended feature columns (ret, vol, ret_z, vol_mean).
+   returns it with appended feature columns (ret, vol, ret_z, quote_vol_mean).
 2. ``is_shock_signal(row, thresholds)`` — checks whether the latest bar
-   exceeds the configured ret_z and vol_mean thresholds.
+   exceeds the configured ret_z and quote_vol_mean thresholds.
 3. ``ShockReversionSignalManager`` — stateful orchestrator that runs
    features + signal detection on each closed candle, tracks active positions
    (persisted to JSON), and emits entry/exit signals for the execution layer.
@@ -35,7 +35,7 @@ DEFAULT_LOOKBACK_BARS = 240          # Rolling window: 240 × 1m = 4 hours
 
 DEFAULT_THRESHOLDS = {
     "ret_z_min": 10.0,               # |ret_z| must exceed this
-    "vol_mean_min": 5_000_000,       # 240-bar mean volume must exceed this
+    "quote_vol_mean_min": 5_000_000, # 240-bar mean quote volume (USDT) must exceed this
 }
 
 DEFAULT_EXIT_PARAMS = {
@@ -67,8 +67,8 @@ class ShockReversionSignal:
     reason:      str = ""
 
     # Feature snapshot (for logging / auditing)
-    ret_z:    Optional[float] = None
-    vol_mean: Optional[float] = None
+    ret_z:          Optional[float] = None
+    quote_vol_mean: Optional[float] = None
 
     # Set by ShockReversionSignalManager to link signal → position
     position_id: Optional[str] = None
@@ -166,27 +166,27 @@ def compute_features(
 
     Appended columns
     ----------------
-    - ``ret``      — bar-to-bar log return:  ln(close_t / close_{t-1})
-    - ``vol``      — rolling std of ``ret`` over *lookback_bars*, lagged by 1
-                     (realised volatility proxy; avoids look-ahead)
-    - ``ret_z``    — return z-score:  ret / vol
-    - ``vol_mean`` — rolling mean of ``volume`` over *lookback_bars*, lagged by 1
-                     (liquidity filter)
+    - ``ret``            — bar-to-bar log return:  ln(close_t / close_{t-1})
+    - ``vol``            — rolling std of ``ret`` over *lookback_bars*, lagged by 1
+                           (realised volatility proxy; avoids look-ahead)
+    - ``ret_z``          — return z-score:  ret / vol
+    - ``quote_vol_mean`` — rolling mean of ``quote_volume`` over *lookback_bars*,
+                           lagged by 1 (USDT notional liquidity filter)
 
     The input DataFrame must contain at least ``open_time``, ``close``,
-    and ``volume`` columns. Returns a sorted copy.
+    and ``quote_volume`` columns. Returns a sorted copy.
     """
     feat = df.copy()
     feat.sort_values("open_time", inplace=True)
     feat.reset_index(drop=True, inplace=True)
 
-    close  = feat["close"].astype(float)
-    volume = feat["volume"].astype(float)
+    close        = feat["close"].astype(float)
+    quote_volume = feat["quote_volume"].astype(float)
 
-    feat["ret"]      = np.log(close).diff()
-    feat["vol"]      = feat["ret"].shift(1).rolling(lookback_bars).std()
-    feat["ret_z"]    = feat["ret"] / feat["vol"]
-    feat["vol_mean"] = volume.shift(1).rolling(lookback_bars).mean()
+    feat["ret"]            = np.log(close).diff()
+    feat["vol"]            = feat["ret"].shift(1).rolling(lookback_bars).std()
+    feat["ret_z"]          = feat["ret"] / feat["vol"]
+    feat["quote_vol_mean"] = quote_volume.shift(1).rolling(lookback_bars).mean()
 
     return feat
 
@@ -202,16 +202,16 @@ def is_shock_signal(
     """
     Return ``True`` when the row meets both shock conditions:
 
-    - ``ret_z``    > ``ret_z_min``    (extreme normalised return spike)
-    - ``vol_mean`` > ``vol_mean_min`` (sufficient liquidity)
+    - ``ret_z``          > ``ret_z_min``          (extreme normalised return spike)
+    - ``quote_vol_mean`` > ``quote_vol_mean_min``  (sufficient USDT notional liquidity)
     """
     t = thresholds or DEFAULT_THRESHOLDS
 
     return bool(
         pd.notna(row.get("ret_z"))
-        and pd.notna(row.get("vol_mean"))
-        and row["ret_z"]    > t["ret_z_min"]
-        and row["vol_mean"] > t["vol_mean_min"]
+        and pd.notna(row.get("quote_vol_mean"))
+        and row["ret_z"]          > t["ret_z_min"]
+        and row["quote_vol_mean"] > t["quote_vol_mean_min"]
     )
 
 
@@ -241,7 +241,7 @@ def detect_signals_for_ticker(
                     entry_price=float(row["close"]),
                     reason="shock_detected",
                     ret_z=float(row["ret_z"]),
-                    vol_mean=float(row["vol_mean"]),
+                    quote_vol_mean=float(row["quote_vol_mean"]),
                 )
             )
     return signals
@@ -346,7 +346,7 @@ class ShockReversionSignalManager:
             for sig in new_entries:
                 self.logger.info(
                     f"[{ticker}] SHOCK SIGNAL — ret_z={sig.ret_z:.2f}, "
-                    f"vol_mean={sig.vol_mean:,.0f}, price={sig.entry_price}"
+                    f"quote_vol_mean={sig.quote_vol_mean:,.0f}, price={sig.entry_price}"
                 )
                 # Register the position for exit tracking
                 pos = ActivePosition(

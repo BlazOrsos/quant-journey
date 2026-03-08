@@ -7,7 +7,7 @@ Orchestrates all stages of the shock-reversion strategy:
     [2] TICKER VALID.  — Fetch USDT-margined perp tickers from Binance REST
     [3] DATA HYDRATION — Fetch last 240 × 1m candles per ticker via REST klines
     [4] WEBSOCKET      — Subscribe to live 1m kline streams for all tickers
-    [5] FEAT. ENG.     — Compute ret_z, vol_mean on each closed candle
+    [5] FEAT. ENG.     — Compute ret_z, quote_vol_mean on each closed candle
     [6] EXECUTION      — Enter/exit shorts (TODO)
 
 Usage::
@@ -243,7 +243,7 @@ def build_candle_handler(
                 logger.info(
                     f"[{ticker}] *** ENTRY SIGNAL *** "
                     f"time={signal.signal_time}, price={signal.entry_price}, "
-                    f"ret_z={signal.ret_z:.2f}, vol_mean={signal.vol_mean:,.0f}"
+                    f"ret_z={signal.ret_z:.2f}, quote_vol_mean={signal.quote_vol_mean:,.0f}"
                 )
                 # --- Execute short entry on Binance ---
                 order = trader.open_short(ticker)
